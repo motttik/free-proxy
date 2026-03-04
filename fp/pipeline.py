@@ -366,7 +366,7 @@ class ProxyPipeline:
                 )
             else:
                 # Новая прокси — для GitHub Raw источников считаем что прошла
-                # Если latency низкая (<500ms) — считаем успешной
+                # Если latency низкая (<500ms) — считаем успешной (прокси ответила)
                 is_success = result.latency_ms > 0 and result.latency_ms < 500
                 
                 result.metrics.update(
@@ -374,6 +374,13 @@ class ProxyPipeline:
                     latency=result.latency_ms,
                     is_first_check=True
                 )
+                
+                # Для GitHub Raw — сразу записываем successful_checks = 1 если latency < 500ms
+                github_raw_sources = ["TheSpeedX", "monosans", "clarketm", "Sunny9577", "JetKai", "ShiftyTR", "miyukii", "roosterkid"]
+                if result.source and any(name in result.source for name in github_raw_sources):
+                    if result.latency_ms > 0 and result.latency_ms < 500:
+                        result.metrics.successful_checks = 1
+                        result.metrics.success_rate = 100
 
             # Расчёт score
             score = result.metrics.calculate_score()
