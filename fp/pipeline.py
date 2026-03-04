@@ -230,14 +230,42 @@ class ProxyPipeline:
         if not self._validator:
             return []
 
-        proxy_tuples = [p.to_proxy() for p in proxies]
-        results = await self._validator.validate_multiple(proxy_tuples, skip_stage_b=True, show_progress=True)
-
-        # Добавляем country и source из NormalizedProxy в результаты
-        for i, result in enumerate(results):
-            if i < len(proxies):
-                result.country = proxies[i].country
-                result.source = proxies[i].source
+        # Разделяем на GitHub Raw (стабильные) и остальные
+        github_raw_sources = ["TheSpeedX", "monosans", "clarketm", "Sunny9577", "JetKai", "ShiftyTR", "miyukii", "roosterkid"]
+        
+        github_proxies = []
+        other_proxies = []
+        
+        for p in proxies:
+            if any(name in p.source for name in github_raw_sources):
+                github_proxies.append(p)
+            else:
+                other_proxies.append(p)
+        
+        results = []
+        
+        # GitHub Raw — валидация БЕЗ IP match (быстрее и больше проходит)
+        if github_proxies:
+            proxy_tuples = [p.to_proxy() for p in github_proxies]
+            gh_results = await self._validator.validate_multiple(proxy_tuples, skip_stage_b=True, skip_ip_match=True, show_progress=False)
+            
+            # Добавляем country и source
+            for i, result in enumerate(gh_results):
+                if i < len(github_proxies):
+                    result.country = github_proxies[i].country
+                    result.source = github_proxies[i].source
+            results.extend(gh_results)
+        
+        # Остальные — полная валидация С IP match
+        if other_proxies:
+            proxy_tuples = [p.to_proxy() for p in other_proxies]
+            other_results = await self._validator.validate_multiple(proxy_tuples, skip_stage_b=True, skip_ip_match=False, show_progress=False)
+            
+            for i, result in enumerate(other_results):
+                if i < len(other_proxies):
+                    result.country = other_proxies[i].country
+                    result.source = other_proxies[i].source
+            results.extend(other_results)
 
         # Считаем успешно прошедшие Stage A
         report.validated_fast += len([r for r in results if r.passed])

@@ -197,16 +197,20 @@ class AsyncProxyValidator:
         ip: str,
         port: int,
         protocol: str = "http",
+        skip_ip_match: bool = False,  # Пропустить проверку IP match
     ) -> ProxyValidationResult:
         """
-        Stage A: Быстрая валидация
+        Stage A: Валидация
+        
+        Args:
+            skip_ip_match: Если True — не проверять IP match (только connectivity)
         """
         proxy_url = self._get_proxy_url(protocol, ip, port)
         result = ProxyValidationResult(
             ip=ip, port=port, protocol=protocol,
             stage=ValidationStage.STAGE_A, passed=False
         )
-        
+
         async with self._semaphore:
             if not self._session:
                 result.error = "Session not initialized"
@@ -227,12 +231,19 @@ class AsyncProxyValidator:
                     async with self._session.get(self.stage_a_url, proxy=proxy_url, timeout=self.STAGE_A_TIMEOUT) as response:
                         status = response.status
                         data = await response.json()
-                
+
                 elapsed_ms = (time.perf_counter() - start_time) * 1000
 
                 if status != 200:
                     result.error = f"HTTP {status}"
                     result.metrics.update(success=False, latency=elapsed_ms, status_code=status)
+                    return result
+
+                # Если skip_ip_match — просто проверяем что получили ответ
+                if skip_ip_match:
+                    result.passed = True
+                    result.latency_ms = elapsed_ms
+                    result.metrics.update(success=True, latency=elapsed_ms, status_code=200)
                     return result
 
                 # httpbin.org/ip возвращает JSON: {"origin": "IP"}
@@ -249,14 +260,14 @@ class AsyncProxyValidator:
                 result.passed = True
                 result.latency_ms = elapsed_ms
                 result.metrics.update(success=True, latency=elapsed_ms, status_code=200)
-                
+
             except asyncio.TimeoutError:
                 result.error = "Timeout"
                 result.metrics.update(success=False, latency=self.STAGE_A_TIMEOUT * 1000)
             except Exception as e:
                 result.error = f"Error: {type(e).__name__}"
                 result.metrics.update(success=False, latency=5000)
-        
+
         return result
 
     async def validate_stage_b(
@@ -336,21 +347,25 @@ class AsyncProxyValidator:
         port: int,
         protocol: str = "http",
         skip_stage_b: bool = False,
+        skip_ip_match: bool = False,
     ) -> ProxyValidationResult:
         """
         Полная 2-этапная валидация
+        
+        Args:
+            skip_ip_match: Пропустить проверку IP match для Stage A
         """
-        result_a = await self.validate_stage_a(ip, port, protocol)
+        result_a = await self.validate_stage_a(ip, port, protocol, skip_ip_match)
         if not result_a.passed:
             return result_a
-        
+
         if not skip_stage_b:
             result_b = await self.validate_stage_b(ip, port, protocol)
             result_a.latency_ms = (result_a.latency_ms + result_b.latency_ms) / 2
             result_b.metrics = result_a.metrics
             result_b.stage = ValidationStage.PASSED if result_b.passed else ValidationStage.FAILED
             return result_b
-        
+
         result_a.stage = ValidationStage.PASSED if result_a.passed else ValidationStage.FAILED
         return result_a
     
@@ -358,21 +373,25 @@ class AsyncProxyValidator:
         self,
         proxies: list[tuple[str, int, str]],
         skip_stage_b: bool = False,
+        skip_ip_match: bool = False,
         show_progress: bool = False,
     ) -> list[ProxyValidationResult]:
         """
         Валидировать несколько прокси
+        
+        Args:
+            skip_ip_match: Пропустить проверку IP match для Stage A
         """
         tasks = [
-            self.validate_full(ip, port, protocol, skip_stage_b)
+            self.validate_full(ip, port, protocol, skip_stage_b, skip_ip_match)
             for ip, port, protocol in proxies
         ]
-        
+
         if show_progress:
             try:
                 from tqdm.asyncio import tqdm_asyncio
                 return await tqdm_asyncio.gather(*tasks, desc="Validation", unit="proxy")
             except ImportError:
                 return await asyncio.gather(*tasks)
-        
+
         return await asyncio.gather(*tasks)
