@@ -264,7 +264,10 @@ class ProxyDatabase:
     ) -> None:
         """Добавить запись в историю проверок"""
         assert self._conn is not None
-        
+
+        # success = 1 если metrics.successful_checks > 0 ИЛИ result.passed
+        success = 1 if (result.metrics.successful_checks > 0 or result.passed) else 0
+
         await self._conn.execute(
             """
             INSERT INTO check_history (proxy_id, success, latency_ms, status_code, error, stage, target_results)
@@ -272,7 +275,7 @@ class ProxyDatabase:
             """,
             (
                 proxy_id,
-                1 if result.passed else 0,
+                success,
                 result.latency_ms,
                 None,
                 result.error,
