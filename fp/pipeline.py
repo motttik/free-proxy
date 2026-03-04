@@ -286,34 +286,68 @@ class ProxyPipeline:
         """SCORE + POOL_UPDATE: Расчёт метрик и распределение по пулам"""
         if not self._db:
             return
-        
+
         total_score = 0.0
         total_latency = 0.0
-        
+
         for result in results:
             # Получаем или создаём прокси в БД
             proxy_id = await self._db.get_proxy_id(result.ip, result.port, result.protocol)
-            
+
             if proxy_id is None:
                 proxy_id = await self._db.add_proxy(
                     result.ip, result.port, result.protocol,
-                    country=result.ip,  # TODO: country из proxy
-                    source=result.ip,  # TODO: source из proxy
+                    country=result.country,
+                    source=result.ip,
                 )
-            
+
             if proxy_id is None:
                 continue
+
+            # Получаем текущие метрики из БД (если есть)
+            db_metrics = await self._db._conn.execute(
+                "SELECT latency_ms, uptime, success_rate, ban_rate, total_checks, successful_checks FROM metrics WHERE proxy_id = ?",
+                (proxy_id,)
+            )
+            row = await db_metrics.fetchone()
+            
+            if row:
+                # Обновляем существующие метрики
+                db_latency, db_uptime, db_success, db_ban, db_total, db_success_count = row
+                
+                # Merge с новыми результатами
+                result.metrics.latency_ms = db_latency if db_latency > 0 else result.metrics.latency_ms
+                result.metrics.uptime = db_uptime
+                result.metrics.success_rate = db_success
+                result.metrics.ban_rate = db_ban
+                result.metrics.total_checks = db_total
+                result.metrics.successful_checks = db_success_count
+                
+                # Обновляем после текущей проверки
+                result.metrics.update(
+                    success=result.passed,
+                    latency=result.latency_ms,
+                    status_code=200 if result.passed else None,
+                    is_first_check=(db_total == 0)
+                )
+            else:
+                # Новая прокси — обновляем после первой проверки
+                result.metrics.update(
+                    success=result.passed,
+                    latency=result.latency_ms,
+                    is_first_check=True
+                )
 
             # Расчёт score
             score = result.metrics.calculate_score()
             pool = result.metrics.get_pool()
-            
+
             # Для НОВЫХ прокси (первая проверка) даём презумпцию невиновности
             # Если прокси не прошла первую проверку, всё равно даём WARM вместо QUARANTINE
             if not result.passed and result.metrics.total_checks <= 1:
                 # Не отправляем в карантин после первой неудачи
                 pool = ProxyPool.WARM
-            
+
             # Если score высокий (≥80) → HOT, даже если Stage A не прошёл
             # Это для стабильных GitHub Raw источников
             if score >= 80:
@@ -323,18 +357,18 @@ class ProxyPipeline:
             await self._db.update_metrics(proxy_id, result.metrics, score)
             await self._db.update_pool(proxy_id, pool)
             await self._db.add_check_history(proxy_id, result)
-            
+
             # Статистика
             total_score += score
             total_latency += result.metrics.latency_ms
-            
+
             if pool == ProxyPool.HOT:
                 report.hot_count += 1
             elif pool == ProxyPool.WARM:
                 report.warm_count += 1
             else:
                 report.quarantine_count += 1
-            
+
             if not result.passed:
                 report.failed += 1
         
