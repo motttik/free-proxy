@@ -65,6 +65,7 @@ from fp.source_manager import SourceManager
 from fp.source_health import SourceHealthManager
 from fp.pipeline import ProxyPipeline, PipelineReport, NormalizedProxy
 from fp.slo_monitor import SLOMonitor, SLOMetrics, Alert
+from fp.github_discovery import GitHubDiscovery, DiscoveredSource
 from fp.errors import (
     FreeProxyException,
     NoWorkingProxyError,
@@ -110,6 +111,8 @@ __all__ = [
     "SLOMonitor",
     "SLOMetrics",
     "Alert",
+    "GitHubDiscovery",
+    "DiscoveredSource",
     
     # Исключения
     "FreeProxyException",
