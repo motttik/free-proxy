@@ -229,13 +229,19 @@ class ProxyPipeline:
         """VALIDATE_FAST: Stage A валидация"""
         if not self._validator:
             return []
-        
+
         proxy_tuples = [p.to_proxy() for p in proxies]
         results = await self._validator.validate_multiple(proxy_tuples, skip_stage_b=True, show_progress=True)
-        
+
+        # Добавляем country и source из NormalizedProxy в результаты
+        for i, result in enumerate(results):
+            if i < len(proxies):
+                result.country = proxies[i].country
+                result.source = proxies[i].source
+
         # Считаем успешно прошедшие Stage A
         report.validated_fast += len([r for r in results if r.passed])
-        
+
         # Считаем fail reasons
         for result in results:
             if not result.passed and result.error:
@@ -250,9 +256,9 @@ class ProxyPipeline:
                     error_type = "ip_mismatch"
                 elif "HTTP" in result.error:
                     error_type = "http_error"
-                
+
                 report.top_fail_reasons[error_type] = report.top_fail_reasons.get(error_type, 0) + 1
-        
+
         return results
     
     async def _validate_targeted(

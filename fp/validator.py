@@ -142,7 +142,9 @@ class ProxyValidationResult:
     error: str | None = None
     target_results: dict = field(default_factory=dict)
     metrics: ProxyMetrics = field(default_factory=ProxyMetrics)
-    
+    country: str | None = None
+    source: str | None = None
+
     def __str__(self) -> str:
         status = "✓" if self.passed else "✗"
         return f"{status} {self.protocol}://{self.ip}:{self.port} [{self.stage.value}] {self.latency_ms:.0f}ms"
