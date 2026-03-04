@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # Production service
+  free-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: free-proxy:latest
+    container_name: free-proxy
+    volumes:
+      - fp-cache:/home/appuser/.cache
+    environment:
+      - PYTHONUNBUFFERED=1
+    entrypoint: ["fp"]
+    command: ["get", "-n", "1"]
+    restart: "no"
+
+  # Development service with tests
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: free-proxy:dev
+    container_name: free-proxy-test
+    volumes:
+      - .:/app
+      - fp-test-cache:/home/appuser/.cache
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    command: ["pytest", "-v", "--cov=fp"]
+    profiles:
+      - dev
+
+  # Interactive shell
+  shell:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: free-proxy:dev
+    container_name: free-proxy-shell
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["/bin/bash"]
+    stdin_open: true
+    tty: true
+    profiles:
+      - dev
+
+volumes:
+  fp-cache:
+    name: free-proxy-cache
+  fp-test-cache:
+    name: free-proxy-test-cache
