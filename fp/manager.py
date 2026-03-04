@@ -270,7 +270,7 @@ class ProxyManager:
         last_issued = await self._get_last_issued_proxy()
         
         # Функция для получения пула с проверкой freshness
-        async def fetch_fresh_pool(pool: ProxyPool, ttl_minutes: int) -> list[dict]:
+        async def fetch_fresh_pool(pool: ProxyPool, ttl_minutes: int, filter_country: str | None = None, filter_protocol: str | None = None) -> list[dict]:
             query = f"""
                 SELECT p.ip, p.port, p.protocol, p.country, p.source,
                        m.score, m.latency_ms, m.uptime, p.last_live_check, p.fail_streak
@@ -280,12 +280,12 @@ class ProxyManager:
             """
             params = [pool.value]
 
-            if country:
+            if filter_country:
                 query += " AND p.country = ?"
-                params.append(country)
-            if protocol:
+                params.append(filter_country)
+            if filter_protocol:
                 query += " AND p.protocol = ?"
-                params.append(protocol)
+                params.append(filter_protocol)
             
             # Исключаем прокси с недавним fail
             if selection.exclude_recent_fail_minutes > 0:
@@ -337,14 +337,14 @@ class ProxyManager:
             return fresh_proxies
 
         # Сначала HOT (с проверкой freshness)
-        hot = await fetch_fresh_pool(ProxyPool.HOT, health.hot_ttl_minutes)
+        hot = await fetch_fresh_pool(ProxyPool.HOT, health.hot_ttl_minutes, country, protocol)
         for proxy in hot:
             if proxy["score"] >= health.hot_min_score:
                 await self._record_proxy_issued(proxy)
                 return proxy
 
         # Потом WARM (с проверкой freshness)
-        warm = await fetch_fresh_pool(ProxyPool.WARM, health.warm_ttl_minutes)
+        warm = await fetch_fresh_pool(ProxyPool.WARM, health.warm_ttl_minutes, country, protocol)
         for proxy in warm:
             if proxy["score"] >= health.warm_min_score:
                 await self._record_proxy_issued(proxy)
@@ -352,7 +352,7 @@ class ProxyManager:
 
         # Quarantine (если разрешено, без freshness проверки)
         if use_quarantine:
-            quarantine = await fetch_fresh_pool(ProxyPool.QUARANTINE, 999999)
+            quarantine = await fetch_fresh_pool(ProxyPool.QUARANTINE, 999999, country, protocol)
             for proxy in quarantine:
                 if proxy["score"] >= min_score:
                     await self._record_proxy_issued(proxy)
