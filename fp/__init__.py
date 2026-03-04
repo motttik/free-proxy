@@ -1,12 +1,19 @@
 """
-Free Proxy - Получение рабочих бесплатных прокси
+Free Proxy v3.0 - Получение рабочих бесплатных прокси
 
-Поддерживает 50+ источников:
+Поддерживает 53 источника:
 - GitHub raw списки (TXT формат)
 - API endpoints (JSON/TXT)
 - HTML сайты для парсинга
 
 Протоколы: HTTP, HTTPS, SOCKS4, SOCKS5
+
+v3.0 Новые возможности:
+- 2-этапная валидация (Stage A + Stage B)
+- Score-система (0-100)
+- Пулы (HOT/WARM/QUARANTINE)
+- SQLite хранение
+- Async валидация
 
 Пример использования:
 
@@ -16,13 +23,14 @@ Free Proxy - Получение рабочих бесплатных прокси
     proxy = FreeProxy(country_id=['US'], timeout=1.0, rand=True).get()
     print(proxy)  # http://1.2.3.4:8080
     
-    # Асинхронно
+    # Асинхронно v3.0
     import asyncio
-    from fp import AsyncFreeProxy
+    from fp import ProxyManager
     
     async def main():
-        proxy = await AsyncFreeProxy().get()
-        print(proxy)
+        async with ProxyManager() as manager:
+            proxy = await manager.get_proxy(min_score=50)
+            print(proxy)
     
     asyncio.run(main())
 
@@ -35,14 +43,23 @@ CLI использование:
     fp test 1.2.3.4:8080
 """
 
-__version__ = "2.0.0"
-__author__ = "jundymek (original), Qwen Code AI (v2.0 rewrite)"
-__email__ = "jundymek@gmail.com"
+__version__ = "3.0.0"
+__author__ = "motttik"
+__email__ = "motttik@users.noreply.github.com"
 __license__ = "MIT"
 
 from fp.core import FreeProxy
 from fp.core_async import AsyncFreeProxy
 from fp.sources.base import Proxy
+from fp.validator import (
+    AsyncProxyValidator,
+    ProxyMetrics,
+    ProxyPool,
+    ProxyValidationResult,
+    ValidationStage,
+)
+from fp.database import ProxyDatabase
+from fp.manager import ProxyManager
 from fp.errors import (
     FreeProxyException,
     NoWorkingProxyError,
@@ -66,10 +83,19 @@ __all__ = [
     "__email__",
     "__license__",
     
-    # Основные классы
+    # v2.0 Классы
     "FreeProxy",
     "AsyncFreeProxy",
     "Proxy",
+    
+    # v3.0 Классы
+    "ProxyManager",
+    "ProxyDatabase",
+    "AsyncProxyValidator",
+    "ProxyMetrics",
+    "ProxyPool",
+    "ProxyValidationResult",
+    "ValidationStage",
     
     # Исключения
     "FreeProxyException",
