@@ -109,15 +109,9 @@ class ProxyPipeline:
         if self._db:
             await self._db.__aexit__(*args)
     
-    async def run_cycle(self, skip_targeted: bool = False) -> PipelineReport:
+    async def run_cycle(self, skip_targeted: bool = False, batch_size: int = 500) -> PipelineReport:
         """
-        Запустить полный цикл pipeline
-        
-        Args:
-            skip_targeted: Пропустить Stage B (для быстрого цикла)
-        
-        Returns:
-            PipelineReport со статистикой
+        Запустить цикл pipeline с инкрементальной записью в БД
         """
         report = PipelineReport()
         
@@ -125,30 +119,41 @@ class ProxyPipeline:
         proxies = await self._collect(report)
         report.collected = len(proxies)
         
-        # 2. NORMALIZE (уже нормализованы из парсеров)
-        report.normalized = len(proxies)
-        
         # 3. DEDUP
         unique_proxies = await self._dedup(proxies)
         report.deduped = len(unique_proxies)
         
-        # 4. VALIDATE_FAST (Stage A)
-        fast_results = await self._validate_fast(unique_proxies, report)
-        report.validated_fast = len([r for r in fast_results if r.passed])
-        
-        # 5. VALIDATE_TARGETED (Stage B)
-        if not skip_targeted:
-            targeted_results = await self._validate_targeted(fast_results, report)
-            report.validated_targeted = len([r for r in targeted_results if r.passed])
-        else:
-            targeted_results = fast_results
-        
-        # 6. SCORE + 7. POOL_UPDATE
-        await self._score_and_pool(targeted_results, report)
-        
-        # 8. REPORT
-        await self._generate_report(report)
-        
+        if not unique_proxies:
+            return report
+
+        # Обработка батчами для предотвращения потери данных при таймауте
+        for i in range(0, len(unique_proxies), batch_size):
+            batch = unique_proxies[i:i + batch_size]
+            logger.info(f"Processing batch {i//batch_size + 1} ({len(batch)} proxies)...")
+            
+            # 4. VALIDATE_FAST (Stage A)
+            fast_results = await self._validate_fast(batch, report)
+            
+            # 5. VALIDATE_TARGETED (Stage B)
+            if not skip_targeted:
+                # Берем только те, что прошли Stage A
+                passed_a = [r for r in fast_results if r.passed]
+                if passed_a:
+                    targeted_results = await self._validate_targeted(passed_a, report)
+                    # Объединяем результаты: те что провалили A и те что прошли/провалили B
+                    failed_a = [r for r in fast_results if not r.passed]
+                    batch_results = targeted_results + failed_a
+                else:
+                    batch_results = fast_results
+            else:
+                batch_results = fast_results
+            
+            # 6. SCORE + 7. POOL_UPDATE (Запись в БД после каждого батча!)
+            await self._score_and_pool(batch_results, report)
+            
+            # Короткий отчет в лог после батча
+            logger.info(f"Batch {i//batch_size + 1} done. HOT: {report.hot_count}, WARM: {report.warm_count}")
+            
         return report
     
     async def _collect(self, report: PipelineReport) -> list[NormalizedProxy]:
@@ -216,6 +221,9 @@ class ProxyPipeline:
         proxy_tuples = [p.to_proxy() for p in proxies]
         results = await self._validator.validate_multiple(proxy_tuples, skip_stage_b=True, show_progress=True)
         
+        # Считаем успешно прошедшие Stage A
+        report.validated_fast += len([r for r in results if r.passed])
+        
         # Считаем fail reasons
         for result in results:
             if not result.passed and result.error:
@@ -237,24 +245,24 @@ class ProxyPipeline:
     
     async def _validate_targeted(
         self,
-        fast_results: list[ProxyValidationResult],
+        passed_fast: list[ProxyValidationResult],
         report: PipelineReport,
     ) -> list[ProxyValidationResult]:
         """VALIDATE_TARGETED: Stage B валидация"""
-        if not self._validator:
+        if not self._validator or not passed_fast:
             return []
         
-        # Только те, что прошли Stage A
-        passed_fast = [r for r in fast_results if r.passed]
+        # Проверяем пачкой
+        proxy_tuples = [(r.ip, r.port, r.protocol) for r in passed_fast]
+        targeted_results = await self._validator.validate_multiple(proxy_tuples, skip_stage_b=False, show_progress=False)
         
-        targeted_results = []
-        for result in passed_fast:
-            targeted = await self._validator.validate_stage_b(result.ip, result.port, result.protocol)
-            targeted.metrics = result.metrics  # Сохраняем историю
-            targeted_results.append(targeted)
-            
-            if not targeted.passed and targeted.error:
+        # Переносим метрики из Stage A в новые результаты
+        for i, targeted in enumerate(targeted_results):
+            targeted.metrics = passed_fast[i].metrics
+            if not targeted.passed:
                 report.top_fail_reasons["targeted_fail"] = report.top_fail_reasons.get("targeted_fail", 0) + 1
+            else:
+                report.validated_targeted += 1
         
         return targeted_results
     
