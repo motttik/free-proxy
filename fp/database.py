@@ -42,12 +42,25 @@ class ProxyDatabase:
         await self._conn.execute("PRAGMA cache_size=10000")
         await self._conn.execute("PRAGMA temp_store=MEMORY")
         await self._create_tables()
+        await self._run_migrations()
         return self
     
     async def __aexit__(self, *args) -> None:
         if self._conn:
             await self._conn.close()
     
+    async def _run_migrations(self) -> None:
+        """Простая миграция БД"""
+        assert self._conn is not None
+        
+        # Проверяем наличие колонки avg_latency в sources
+        cursor = await self._conn.execute("PRAGMA table_info(sources)")
+        columns = [row[1] for row in await cursor.fetchall()]
+        
+        if "avg_latency" not in columns:
+            await self._conn.execute("ALTER TABLE sources ADD COLUMN avg_latency REAL DEFAULT 0")
+            await self._conn.commit()
+
     async def _create_tables(self) -> None:
         """Создать таблицы"""
         assert self._conn is not None
@@ -125,6 +138,7 @@ class ProxyDatabase:
                 pass_rate REAL DEFAULT 100,
                 total_fetches INTEGER DEFAULT 0,
                 successful_fetches INTEGER DEFAULT 0,
+                avg_latency REAL DEFAULT 0,
                 disabled_until REAL,
                 last_check REAL,
                 created_at REAL DEFAULT (strftime('%s', 'now'))

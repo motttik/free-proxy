@@ -74,8 +74,8 @@ class SourceManager:
                 await self._db._conn.execute(
                     """
                     INSERT OR IGNORE INTO sources 
-                    (name, url, type, protocols, fail_streak, pass_rate, total_fetches, successful_fetches)
-                    VALUES (?, ?, ?, ?, 0, 100, 0, 0)
+                    (name, url, type, protocols, fail_streak, pass_rate, total_fetches, successful_fetches, avg_latency)
+                    VALUES (?, ?, ?, ?, 0, 100, 0, 0, 0)
                     """,
                     (source["name"], source["url"], source["type"].value, protocols),
                 )
@@ -108,13 +108,14 @@ class SourceManager:
         url: str,
         success: bool,
         proxies_found: int = 0,
+        latency_ms: float = 0,
     ) -> None:
         """Обновить статистику источника"""
         assert self._db is not None
         
         # Получаем текущие stats
         cursor = await self._db._conn.execute(
-            "SELECT fail_streak, total_fetches, successful_fetches FROM sources WHERE url = ?",
+            "SELECT fail_streak, total_fetches, successful_fetches, avg_latency FROM sources WHERE url = ?",
             (url,),
         )
         row = await cursor.fetchone()
@@ -122,12 +123,14 @@ class SourceManager:
         if not row:
             return
         
-        fail_streak, total_fetches, successful_fetches = row
+        fail_streak, total_fetches, successful_fetches, avg_latency = row
         
         # Обновляем
         if success:
             fail_streak = 0
             successful_fetches += 1
+            # EMA latency
+            avg_latency = (avg_latency * 0.7) + (latency_ms * 0.3)
         else:
             fail_streak += 1
         
@@ -149,10 +152,11 @@ class SourceManager:
                 successful_fetches = ?,
                 pass_rate = ?,
                 disabled_until = ?,
+                avg_latency = ?,
                 last_check = strftime('%s', 'now')
             WHERE url = ?
             """,
-            (fail_streak, total_fetches, successful_fetches, pass_rate, disabled_until, url),
+            (fail_streak, total_fetches, successful_fetches, pass_rate, disabled_until, avg_latency, url),
         )
         await self._db._conn.commit()
     
