@@ -736,7 +736,7 @@ def smoke_test_cmd(
     Пример:
         fp op smoke -n 10 --url https://httpbin.org/ip
     """
-    from tests.smoke_test import smoke_test, print_report
+    from fp.smoke import smoke_test, print_report
     
     async def _run():
         results = await smoke_test(
