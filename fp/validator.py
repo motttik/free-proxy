@@ -170,7 +170,7 @@ class AsyncProxyValidator:
     def __init__(
         self,
         max_concurrent: int = 200,
-        stage_a_url: str = "http://icanhazip.com",
+        stage_a_url: str = "https://httpbin.org/ip",
     ) -> None:
         self.max_concurrent = max_concurrent
         self.stage_a_url = stage_a_url
@@ -229,19 +229,23 @@ class AsyncProxyValidator:
                         data = await response.json()
                 
                 elapsed_ms = (time.perf_counter() - start_time) * 1000
-                
+
                 if status != 200:
                     result.error = f"HTTP {status}"
                     result.metrics.update(success=False, latency=elapsed_ms, status_code=status)
                     return result
+
+                # httpbin.org/ip возвращает JSON: {"origin": "IP"}
+                try:
+                    response_ip = data.get("origin", "").strip().split(",")[0]
+                except:
+                    response_ip = (await response.text()).strip()
                 
-                # icanhazip возвращает просто строку с IP
-                response_ip = (await response.text()).strip()
                 if response_ip != ip:
                     result.error = f"IP mismatch: {response_ip} != {ip}"
                     result.metrics.update(success=False, latency=elapsed_ms, status_code=200)
                     return result
-                
+
                 result.passed = True
                 result.latency_ms = elapsed_ms
                 result.metrics.update(success=True, latency=elapsed_ms, status_code=200)
