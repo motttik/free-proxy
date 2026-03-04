@@ -1,8 +1,13 @@
 """
-Proxy Manager v3.0
+Proxy Manager v3.2
 
-Полный цикл:
-COLLECT → VALIDATE A → VALIDATE B → SCORE → ROTATE → REPORT
+Полный цикл с health contract:
+COLLECT → VALIDATE A → VALIDATE B → SCORE → POOL_UPDATE → REPORT
+
+Health contract:
+- HOT: live_check за последние 15 мин + score >= 80 + latency <= 1000ms
+- WARM: live_check за последние 45 мин + score >= 50
+- QUARANTINE: всё остальное
 """
 
 import asyncio
@@ -14,6 +19,7 @@ from typing import Literal
 
 from fp.validator import AsyncProxyValidator, ProxyMetrics, ProxyPool, ProxyValidationResult, ValidationStage
 from fp.database import ProxyDatabase
+from fp.config import health, validation, selection
 
 
 class ProxyManager:
@@ -245,28 +251,35 @@ class ProxyManager:
         profile: str = "universal",
     ) -> dict | None:
         """
-        Получить рабочую прокси
-        
+        Получить рабочую прокси с rotation и diversity
+
         Профили:
         - universal: баланс (по умолчанию, сортировка по score)
         - speed-first: сортировка по минимальной задержке (latency)
         - stability-first: сортировка по максимальному uptime
-        
+
         Приоритет: HOT → WARM → QUARANTINE (если use_quarantine=True)
+        
+        Health contract:
+        - HOT: live_check за последние hot_ttl_minutes + score >= hot_min_score
+        - WARM: live_check за последние warm_ttl_minutes + score >= warm_min_score
         """
         assert self._db is not None
         
-        # Функция для сортировки пула по профилю
-        async def fetch_pool(pool: ProxyPool) -> list[dict]:
+        # Получаем последнюю выданную прокси для rotation
+        last_issued = await self._get_last_issued_proxy()
+        
+        # Функция для получения пула с проверкой freshness
+        async def fetch_fresh_pool(pool: ProxyPool, ttl_minutes: int) -> list[dict]:
             query = f"""
-                SELECT p.ip, p.port, p.protocol, p.country, p.source, 
-                       m.score, m.latency_ms, m.uptime
+                SELECT p.ip, p.port, p.protocol, p.country, p.source,
+                       m.score, m.latency_ms, m.uptime, p.last_live_check, p.fail_streak
                 FROM proxies p
                 JOIN metrics m ON p.id = m.proxy_id
                 WHERE p.pool = ?
             """
             params = [pool.value]
-            
+
             if country:
                 query += " AND p.country = ?"
                 params.append(country)
@@ -274,43 +287,105 @@ class ProxyManager:
                 query += " AND p.protocol = ?"
                 params.append(protocol)
             
+            # Исключаем прокси с недавним fail
+            if selection.exclude_recent_fail_minutes > 0:
+                fail_cutoff = time.time() - (selection.exclude_recent_fail_minutes * 60)
+                query += " AND (p.last_check IS NULL OR p.last_check < ?)"
+                params.append(fail_cutoff)
+
             if profile == "speed-first":
-                query += " ORDER BY m.latency_ms ASC LIMIT 20"
+                query += " ORDER BY m.latency_ms ASC LIMIT 50"
             elif profile == "stability-first":
-                query += " ORDER BY m.uptime DESC, m.score DESC LIMIT 20"
+                query += " ORDER BY m.uptime DESC, m.score DESC LIMIT 50"
             else:  # universal
-                query += " ORDER BY m.score DESC LIMIT 20"
-                
+                query += " ORDER BY m.score DESC LIMIT 50"
+
             cursor = await self._db._conn.execute(query, params)
             rows = await cursor.fetchall()
-            return [
-                {
-                    "ip": r[0], "port": r[1], "protocol": r[2], "country": r[3],
-                    "source": r[4], "score": r[5], "latency_ms": r[6], "uptime": r[7]
-                }
-                for r in rows
-            ]
+            
+            # Фильтруем по freshness и rotation
+            fresh_proxies = []
+            now = time.time()
+            
+            for r in rows:
+                ip, port, protocol, country, source, score, latency, uptime, last_live_check, fail_streak = r
+                
+                # Проверка freshness
+                if last_live_check:
+                    age_minutes = (now - last_live_check) / 60
+                    if age_minutes > ttl_minutes:
+                        continue  # Устарела
+                
+                # Проверка rotation (не повторять последнюю выданную)
+                if selection.enable_rotation and last_issued:
+                    if ip == last_issued["ip"] and port == last_issued["port"]:
+                        continue
+                
+                # Проверка diversity (не больше N из одной подсети)
+                if selection.enable_diversity:
+                    subnet = ".".join(ip.split(".")[:3])
+                    same_subnet = sum(1 for p in fresh_proxies if p["ip"].startswith(subnet))
+                    if same_subnet >= selection.max_same_subnet:
+                        continue
+                
+                fresh_proxies.append({
+                    "ip": ip, "port": port, "protocol": protocol, "country": country,
+                    "source": source, "score": score, "latency_ms": latency, "uptime": uptime,
+                    "last_live_check": last_live_check, "fail_streak": fail_streak
+                })
+            
+            return fresh_proxies
 
-        # Сначала HOT
-        hot = await fetch_pool(ProxyPool.HOT)
+        # Сначала HOT (с проверкой freshness)
+        hot = await fetch_fresh_pool(ProxyPool.HOT, health.hot_ttl_minutes)
         for proxy in hot:
-            if proxy["score"] >= min_score:
+            if proxy["score"] >= health.hot_min_score:
+                await self._record_proxy_issued(proxy)
                 return proxy
-        
-        # Потом WARM
-        warm = await fetch_pool(ProxyPool.WARM)
+
+        # Потом WARM (с проверкой freshness)
+        warm = await fetch_fresh_pool(ProxyPool.WARM, health.warm_ttl_minutes)
         for proxy in warm:
-            if proxy["score"] >= min_score:
+            if proxy["score"] >= health.warm_min_score:
+                await self._record_proxy_issued(proxy)
                 return proxy
-        
-        # Quarantine (если разрешено)
+
+        # Quarantine (если разрешено, без freshness проверки)
         if use_quarantine:
-            quarantine = await fetch_pool(ProxyPool.QUARANTINE)
+            quarantine = await fetch_fresh_pool(ProxyPool.QUARANTINE, 999999)
             for proxy in quarantine:
                 if proxy["score"] >= min_score:
+                    await self._record_proxy_issued(proxy)
                     return proxy
-        
+
         return None
+    
+    async def _get_last_issued_proxy(self) -> dict | None:
+        """Получить последнюю выданную прокси для rotation"""
+        assert self._db is not None
+        
+        cursor = await self._db._conn.execute(
+            """
+            SELECT ip, port FROM proxies
+            WHERE updated_at = (SELECT MAX(updated_at) FROM proxies)
+            LIMIT 1
+            """
+        )
+        row = await cursor.fetchone()
+        
+        if row:
+            return {"ip": row[0], "port": row[1]}
+        return None
+    
+    async def _record_proxy_issued(self, proxy: dict) -> None:
+        """Записать факт выдачи прокси"""
+        assert self._db is not None
+        
+        await self._db._conn.execute(
+            "UPDATE proxies SET updated_at = strftime('%s', 'now') WHERE ip = ? AND port = ?",
+            (proxy["ip"], proxy["port"]),
+        )
+        await self._db._conn.commit()
     
     async def get_stats(self) -> dict:
         """Получить статистику"""
