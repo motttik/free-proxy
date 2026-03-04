@@ -7,6 +7,7 @@ COLLECT → NORMALIZE → DEDUP → VALIDATE_FAST → VALIDATE_TARGETED → SCOR
 
 import asyncio
 import time
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,8 @@ from fp.database import ProxyDatabase
 from fp.source_health import SourceHealthManager
 from fp.config import ALL_SOURCES, ProxySource, SourceType
 from fp.sources import get_parser
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -157,22 +160,26 @@ class ProxyPipeline:
         return report
     
     async def _collect(self, report: PipelineReport) -> list[NormalizedProxy]:
-        """COLLECT: Сбор из источников"""
+        """COLLECT: Сбор из источников (асинхронный)"""
         all_proxies: list[NormalizedProxy] = []
-        
+
         # Получаем доступные источники
         available = self._health_manager.get_available_sources() if self._health_manager else ALL_SOURCES
-        
+
         # Core источники (приоритет)
-        core_sources = [s for s in available if s["name"] in ["TheSpeedX HTTP", "monosans HTTP", "clarketm HTTP"]]
+        core_names = ["TheSpeedX HTTP", "monosans HTTP", "clarketm HTTP"]
+        core_sources = [s for s in available if s["name"] in core_names]
         other_sources = [s for s in available if s not in core_sources]
-        
-        # Собираем из core сначала
+
+        # Собираем асинхронно
         for source in core_sources + other_sources:
             try:
-                parser = get_parser(source)
-                result = parser.parse()
-                
+                # Запускаем в executor чтобы не блокировать
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda s=source: get_parser(s).parse()
+                )
+
                 if result.success:
                     for proxy in result.proxies:
                         all_proxies.append(NormalizedProxy(
@@ -182,18 +189,18 @@ class ProxyPipeline:
                             country=proxy.country,
                             source=source["name"],
                         ))
-                    
+
                     # Записываем успех в health manager
                     if self._health_manager:
                         self._health_manager.record_success(source["url"], result.count * 10)
                 else:
                     if self._health_manager:
                         self._health_manager.record_failure(source["url"], "parse_error")
-                        
+
             except Exception as e:
                 if self._health_manager:
                     self._health_manager.record_failure(source["url"], type(e).__name__)
-        
+
         return all_proxies
     
     async def _dedup(self, proxies: list[NormalizedProxy]) -> list[NormalizedProxy]:
