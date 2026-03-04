@@ -204,19 +204,24 @@ class ProxyManager:
                         pool = ProxyPool.HOT
                         report["hot"] += 1
                         
-                        # Обновляем метрики с live latency
+                        # Обновляем метрики с live latency и last_live_check
                         if live_latency:
                             result.metrics.latency_ms = live_latency
                             result.metrics.successful_checks += 1
                             result.metrics.success_rate = 100
                             score = result.metrics.calculate_score()
+                        
+                        # Обновляем last_live_check в БД
+                        await self._db.update_health_on_success(proxy_id)
                     elif score >= health.hot_min_score:
                         # Score высокий но live-check не прошёл → WARM
                         pool = ProxyPool.WARM
                         report["warm"] += 1
+                        await self._db.update_health_on_fail(proxy_id)
                     else:
                         pool = ProxyPool.WARM
                         report["warm"] += 1
+                        await self._db.update_health_on_fail(proxy_id)
 
                     await self._db.update_metrics(proxy_id, result.metrics, score)
                     await self._db.update_pool(proxy_id, pool)
