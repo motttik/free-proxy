@@ -60,6 +60,8 @@ from fp.validator import (
 )
 from fp.database import ProxyDatabase
 from fp.manager import ProxyManager
+from fp.scheduler import ProxyScheduler
+from fp.source_manager import SourceManager
 from fp.errors import (
     FreeProxyException,
     NoWorkingProxyError,
@@ -96,6 +98,8 @@ __all__ = [
     "ProxyPool",
     "ProxyValidationResult",
     "ValidationStage",
+    "ProxyScheduler",
+    "SourceManager",
     
     # Исключения
     "FreeProxyException",
