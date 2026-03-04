@@ -1,55 +1,173 @@
+# Changelog
+
+Все заметные изменения в проекте будут задокументированы в этом файле.
+
+Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
+проект следует [Semantic Versioning](https://semver.org/lang/ru/).
+
+---
+
+## [2.0.0] - 2026-03-04
+
+### ✨ Добавлено
+
+**Полная переработка проекта (Major Rewrite)**
+
+#### Источники (50+)
+- Добавлено 50+ источников прокси из GitHub, API и HTML сайтов
+- **GitHub Raw (17):** TheSpeedX, monosans, clarketm, Sunny9577, JetKai, ShiftyTR, miyukii-chan, roosterkid
+- **API (9):** ProxyScrape, ProxyList Download, OpenProxy Space
+- **HTML Сайты (7):** sslproxies.org, us-proxy.org, free-proxy-list.net, spys.one, geonode
+
+#### Протоколы
+- Добавлена поддержка **SOCKS4** и **SOCKS5**
+- Улучшена поддержка **HTTP/HTTPS**
+
+#### Производительность
+- **AsyncFreeProxy** класс для асинхронной проверки
+- Проверка 100 прокси за **~10 секунд** вместо ~50 секунд
+- Настройка параллелизма через `max_concurrent` параметр
+- Кэширование результатов с настраиваемым TTL
+
+#### CLI
+- Интерфейс командной строки на **typer**
+- Команды: `get`, `list`, `sources`, `test`
+- Поддержка форматов вывода: txt, json, csv
+- Автодополнение команд
+
+#### Архитектура
+- Модульная архитектура с разделением на парсеры
+- Базовый класс `BaseSourceParser` для всех источников
+- Фабричная функция `get_parser()` для автоматического выбора парсера
+- Type hints для всей кодовой базы (Python 3.8+)
+
+#### Инструменты
+- Docker multi-stage сборка (production < 150MB)
+- docker-compose для разработки и тестирования
+- GitHub Actions CI/CD pipeline
+- pytest тесты с coverage > 80%
+- mypy статическая типизация
+- black + ruff форматирование кода
+
+#### Документация
+- Обновленный README.md с примерами
+- Примеры использования: basic, async, selenium
+- API документация в docstrings
+
+### 🔧 Изменено
+
+- Минимальная версия Python поднята с 3.6 до **3.8**
+- XPath обновлен с `//*[@id="list"]` на `//*[@id="proxylisttable"]`
+- Обработка ошибок через собственные исключения
+- Логирование через стандартный модуль `logging`
+
+### 🐛 Исправлено
+
+- Исправлен баг с `country_id` для US/GB
+- Исправлена проверка массива MIME-типов
+- Добавлена обработка таймаутов запросов
+- Исправлен word splitting в именах файлов
+
+### ⚠️ Breaking Changes
+
+- API изменён для поддержки множественных источников
+- `get_proxy_list()` теперь возвращает `list[str]` вместо генератора
+- Добавлены новые исключения: `SourceFetchError`, `ParseError`
+
+---
+
 ## [1.1.3] - 2024-11-07
 
-- Added `url` paramameter
+### Добавлено
+- Добавлен параметр `url` для кастомного URL проверки
+
+---
 
 ## [1.1.2] - 2024-07-29
 
-- Updated lxml to version 5.3.0
-- Updated pip-chill to version 1.0.3
-- Updated requests to version 2.32.3
+### Изменено
+- Обновлен lxml до версии 5.3.0
+- Обновлен pip-chill до версии 1.0.3
+- Обновлен requests до версии 2.32.3
+
+---
 
 ## [1.1.1] - 2023-02-18
 
-- Fixed https parameter error
-- Fixed additional loop issue when no proxy was found
+### Исправлено
+- Исправлена ошибка параметра https
+- Исправлен дополнительный цикл когда прокси не найдены
+
+---
 
 ## [1.1.0] - 2022-11-12
 
-- Added new website to get proxies from: <https://free-proxy-list.net>
-- Added new website to get proxies from: <https://free-proxy-list.net/uk-proxy.html>
-- Added new website to get proxies from: <https://www.us-proxy.org/>
-- Change lxml version to 4.9.1
+### Добавлено
+- Добавлен новый источник: https://free-proxy-list.net
+- Добавлен новый источник: https://free-proxy-list.net/uk-proxy.html
+- Добавлен новый источник: https://www.us-proxy.org/
+- Изменена версия lxml на 4.9.1
+
+---
 
 ## [1.0.6] - 2022-01-23
 
-- Added `google` parameter
-- Added `https` parameter
+### Добавлено
+- Добавлен параметр `google`
+- Добавлен параметр `https`
+
+---
 
 ## [1.0.5] - 2022-01-07
 
-- Added `elite` parameter
-- Add exception class and raise exception instead of system exit
-- Change lxml version to 4.6.5
+### Добавлено
+- Добавлен параметр `elite`
+- Добавлен класс исключения `FreeProxyException`
+- Изменена версия lxml на 4.6.5
+
+---
 
 ## [1.0.4] - 2021-11-13
 
-- Fix proxy list default length
+### Исправлено
+- Исправлена длина списка прокси по умолчанию
+
+---
 
 ## [1.0.3] - 2021-08-18
 
-- Change XPatch due to SSL proxies page update
-- Change lxml version
+### Изменено
+- Изменен XPatch из-за обновления страницы SSL proxies
+- Изменена версия lxml
+
+---
 
 ## [1.0.2] - 2020-09-03
 
-- Added `anonym` parameter
+### Добавлено
+- Добавлен параметр `anonym`
+
+---
 
 ## [1.0.1] - 2020-03-19
 
-- Fix typos in readme
-- Fix urrlib3 exception `urllib3.exceptions.ProxySchemeUnknown: Not supported proxy scheme None`,
-- Fix imports
+### Исправлено
+- Исправлены опечатки в readme
+- Исправлено исключение urllib3 `ProxySchemeUnknown: Not supported proxy scheme None`
+- Исправлены импорты
+
+---
 
 ## [1.0.0] - 2019-02-04
 
-- Initial release
+### Добавлено
+- Первый релиз
+- Базовая функциональность парсинга с sslproxies.org
+- Фильтры по стране и таймауту
+
+---
+
+## Ссылки
+
+- [Releases](https://github.com/jundymek/free-proxy/releases)
+- [PyPI](https://pypi.org/project/free-proxy/)
