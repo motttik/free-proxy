@@ -214,7 +214,7 @@ class ProxyPipeline:
             return []
         
         proxy_tuples = [p.to_proxy() for p in proxies]
-        results = await self._validator.validate_multiple(proxy_tuples, skip_stage_b=True)
+        results = await self._validator.validate_multiple(proxy_tuples, skip_stage_b=True, show_progress=True)
         
         # Считаем fail reasons
         for result in results:
@@ -222,10 +222,14 @@ class ProxyPipeline:
                 error_type = "unknown"
                 if "Timeout" in result.error:
                     error_type = "timeout"
-                elif "Connect" in result.error:
-                    error_type = "connect"
+                elif "Connect" in result.error or "Network" in result.error:
+                    error_type = "network"
                 elif "Proxy" in result.error:
                     error_type = "proxy"
+                elif "IP mismatch" in result.error:
+                    error_type = "ip_mismatch"
+                elif "HTTP" in result.error:
+                    error_type = "http_error"
                 
                 report.top_fail_reasons[error_type] = report.top_fail_reasons.get(error_type, 0) + 1
         
