@@ -166,13 +166,18 @@ class ProxyPipeline:
         # Получаем доступные источники
         available = self._health_manager.get_available_sources() if self._health_manager else ALL_SOURCES
 
-        # Core источники (приоритет)
-        core_names = ["TheSpeedX HTTP", "monosans HTTP", "clarketm HTTP"]
-        core_sources = [s for s in available if s["name"] in core_names]
-        other_sources = [s for s in available if s not in core_sources]
+        # Используем ТОЛЬКО GitHub Raw источники (они стабильны)
+        github_raw_sources = [
+            s for s in available 
+            if s["type"].value == "github_raw" and "TheSpeedX" in s["name"] or "monosans" in s["name"] or "clarketm" in s["name"]
+        ]
+
+        # Если GitHub источников нет, берём все доступные
+        if not github_raw_sources:
+            github_raw_sources = available
 
         # Собираем асинхронно
-        for source in core_sources + other_sources:
+        for source in github_raw_sources:
             try:
                 # Запускаем в executor чтобы не блокировать
                 result = await asyncio.get_event_loop().run_in_executor(
@@ -192,7 +197,7 @@ class ProxyPipeline:
 
                     # Записываем успех в health manager
                     if self._health_manager:
-                        self._health_manager.record_success(source["url"], result.count * 10)
+                        self._health_manager.record_success(source["url"], len(result.proxies))
                 else:
                     if self._health_manager:
                         self._health_manager.record_failure(source["url"], "parse_error")
