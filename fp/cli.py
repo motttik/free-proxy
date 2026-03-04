@@ -710,10 +710,45 @@ def run_pipeline(
             
             console.print(f"\n[bold]Avg Score:[/bold] {report.avg_score:.1f}")
             console.print(f"[bold]Avg Latency:[/bold] {report.avg_latency:.0f}ms")
-            
+
             if report.top_fail_reasons:
                 console.print("\n[bold red]Top Fail Reasons:[/bold red]")
                 for reason, count in sorted(report.top_fail_reasons.items(), key=lambda x: x[1], reverse=True)[:5]:
                     console.print(f"  {reason}: {count}")
+
+    asyncio.run(_run())
+
+
+# ============================================================================
+# SMOKE TEST COMMAND (v3.3)
+# ============================================================================
+
+@operator_app.command("smoke")
+def smoke_test_cmd(
+    n: Annotated[int, typer.Option("--n", "-n", help="Number of proxies to test")] = 10,
+    url: Annotated[str, typer.Option("--url", "-u", help="Test URL")] = "https://httpbin.org/ip",
+    timeout: Annotated[float, typer.Option("--timeout", "-t", help="Timeout in seconds")] = 10.0,
+    use_quarantine: Annotated[bool, typer.Option("--use-quarantine", help="Use quarantine proxies")] = False,
+):
+    """
+    Smoke test: проверить N прокси реальным запросом
+    
+    Пример:
+        fp op smoke -n 10 --url https://httpbin.org/ip
+    """
+    from tests.smoke_test import smoke_test, print_report
+    
+    async def _run():
+        results = await smoke_test(
+            n=n,
+            test_url=url,
+            timeout=timeout,
+            use_quarantine=use_quarantine,
+        )
+        print_report(results)
+        
+        # Exit code
+        if results["ratio"] < 0.3:
+            raise typer.Exit(code=1)
     
     asyncio.run(_run())

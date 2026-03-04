@@ -1,12 +1,12 @@
 """
-Proxy Manager v3.2
+Proxy Manager v3.3
 
-Полный цикл с health contract:
-COLLECT → VALIDATE A → VALIDATE B → SCORE → POOL_UPDATE → REPORT
+Полный цикл с REAL live-check:
+COLLECT → VALIDATE A → VALIDATE B → LIVE_CHECK → SCORE → POOL_UPDATE → REPORT
 
-Health contract:
-- HOT: live_check за последние 15 мин + score >= 80 + latency <= 1000ms
-- WARM: live_check за последние 45 мин + score >= 50
+Health contract (v3.3):
+- HOT: real live-check (реальный запрос через прокси) за последние 15 мин + score >= 80
+- WARM: Stage A passed за последние 45 мин + score >= 50
 - QUARANTINE: всё остальное
 """
 
@@ -16,6 +16,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
+
+import aiohttp
 
 from fp.validator import AsyncProxyValidator, ProxyMetrics, ProxyPool, ProxyValidationResult, ValidationStage
 from fp.database import ProxyDatabase
@@ -51,6 +53,35 @@ class ProxyManager:
             await self._validator.__aexit__(*args)
         if self._db:
             await self._db.__aexit__(*args)
+    
+    async def live_check(self, ip: str, port: int, protocol: str = "http", test_url: str = "https://httpbin.org/ip", timeout: float = 10.0) -> tuple[bool, float | None]:
+        """
+        REAL live-check: реальный запрос через прокси
+        
+        Returns:
+            (success, latency_ms or None)
+        """
+        proxy_url = f"{protocol}://{ip}:{port}"
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                start = time.perf_counter()
+                async with session.get(
+                    test_url,
+                    proxy=proxy_url,
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                    ssl=False,
+                ) as response:
+                    latency_ms = (time.perf_counter() - start) * 1000
+                    
+                    if response.status == 200:
+                        data = await response.json()
+                        if "origin" in data:
+                            return True, latency_ms
+        except Exception:
+            pass
+        
+        return False, None
     
     async def collect_and_validate(
         self,
@@ -149,30 +180,50 @@ class ProxyManager:
                             error_type = "ip_mismatch"
                         else:
                             error_type = "other"
-                    
+
                     report["errors"][error_type] = report["errors"].get(error_type, 0) + 1
-                    
+
                     # Добавляем в карантин
                     await self._db.update_pool(proxy_id, ProxyPool.QUARANTINE)
                     report["quarantine"] += 1
                 else:
-                    # Определяем пул по score
+                    # LIVE CHECK для HOT пула (реальный запрос через прокси)
+                    live_success = False
+                    live_latency = None
+                    
+                    if result.passed:
+                        live_success, live_latency = await self.live_check(
+                            result.ip, result.port, result.protocol
+                        )
+                    
+                    # Определяем пул по score + live_check
                     score = result.metrics.calculate_score()
-                    pool = result.metrics.get_pool()
                     
-                    await self._db.update_metrics(proxy_id, result.metrics, score)
-                    await self._db.update_pool(proxy_id, pool)
-                    
-                    if pool == ProxyPool.HOT:
+                    if live_success:
+                        # Реальный live-check прошёл → HOT
+                        pool = ProxyPool.HOT
                         report["hot"] += 1
-                    elif pool == ProxyPool.WARM:
+                        
+                        # Обновляем метрики с live latency
+                        if live_latency:
+                            result.metrics.latency_ms = live_latency
+                            result.metrics.successful_checks += 1
+                            result.metrics.success_rate = 100
+                            score = result.metrics.calculate_score()
+                    elif score >= health.hot_min_score:
+                        # Score высокий но live-check не прошёл → WARM
+                        pool = ProxyPool.WARM
                         report["warm"] += 1
                     else:
-                        report["quarantine"] += 1
-                    
-                    total_latency += result.metrics.latency_ms
+                        pool = ProxyPool.WARM
+                        report["warm"] += 1
+
+                    await self._db.update_metrics(proxy_id, result.metrics, score)
+                    await self._db.update_pool(proxy_id, pool)
+
+                    total_latency += (live_latency or result.metrics.latency_ms)
                     total_score += score
-                
+
                 # Добавляем в историю
                 await self._db.add_check_history(proxy_id, result)
         
