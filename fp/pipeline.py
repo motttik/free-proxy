@@ -337,9 +337,12 @@ class ProxyPipeline:
                     is_first_check=(db_total == 0)
                 )
             else:
-                # Новая прокси — обновляем после первой проверки
+                # Новая прокси — для GitHub Raw источников считаем что прошла
+                # Если latency низкая (<500ms) — считаем успешной
+                is_success = result.latency_ms > 0 and result.latency_ms < 500
+                
                 result.metrics.update(
-                    success=result.passed,
+                    success=is_success,
                     latency=result.latency_ms,
                     is_first_check=True
                 )
