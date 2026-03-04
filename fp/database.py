@@ -41,24 +41,57 @@ class ProxyDatabase:
         await self._conn.execute("PRAGMA synchronous=NORMAL")
         await self._conn.execute("PRAGMA cache_size=10000")
         await self._conn.execute("PRAGMA temp_store=MEMORY")
-        await self._create_tables()
+        # 1. Сначала миграции (добавляем недостающие колонки)
         await self._run_migrations()
+        # 2. Затем таблицы/индексы
+        await self._create_tables()
         return self
-    
+
     async def __aexit__(self, *args) -> None:
         if self._conn:
             await self._conn.close()
     
+    async def _column_exists(self, table: str, column: str) -> bool:
+        """Проверить, существует ли колонка в таблице"""
+        assert self._conn is not None
+        cursor = await self._conn.execute(f"PRAGMA table_info({table})")
+        columns = [row[1] for row in await cursor.fetchall()]
+        return column in columns
+    
     async def _run_migrations(self) -> None:
         """Простая миграция БД"""
         assert self._conn is not None
+
+        # Миграция 1: health contract поля в proxies
+        cursor = await self._conn.execute("PRAGMA table_info(proxies)")
+        columns = [row[1] for row in await cursor.fetchall()]
+
+        if "last_live_check" not in columns:
+            await self._conn.execute("ALTER TABLE proxies ADD COLUMN last_live_check REAL")
+            await self._conn.commit()
+
+        if "last_check" not in columns:
+            await self._conn.execute("ALTER TABLE proxies ADD COLUMN last_check REAL")
+            await self._conn.commit()
+
+        if "fail_streak" not in columns:
+            await self._conn.execute("ALTER TABLE proxies ADD COLUMN fail_streak INTEGER DEFAULT 0")
+            await self._conn.commit()
         
-        # Проверяем наличие колонки avg_latency в sources
+        # Миграция 2: avg_latency в sources
         cursor = await self._conn.execute("PRAGMA table_info(sources)")
         columns = [row[1] for row in await cursor.fetchall()]
-        
+
         if "avg_latency" not in columns:
             await self._conn.execute("ALTER TABLE sources ADD COLUMN avg_latency REAL DEFAULT 0")
+            await self._conn.commit()
+        
+        # Миграция 3: country в proxies (для legacy БД)
+        cursor = await self._conn.execute("PRAGMA table_info(proxies)")
+        columns = [row[1] for row in await cursor.fetchall()]
+        
+        if "country" not in columns:
+            await self._conn.execute("ALTER TABLE proxies ADD COLUMN country TEXT")
             await self._conn.commit()
 
     async def _create_tables(self) -> None:
@@ -81,10 +114,13 @@ class ProxyDatabase:
             )
         """)
         
-        # Индексы для быстрого поиска
+        # Индексы для быстрого поиска (защищены через column_exists)
         await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_ip ON proxies(ip)")
         await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_pool ON proxies(pool)")
-        await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_country ON proxies(country)")
+        
+        # Индекс на country только если колонка существует
+        if await self._column_exists("proxies", "country"):
+            await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_country ON proxies(country)")
         
         # Таблица метрик
         await self._conn.execute("""
