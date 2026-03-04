@@ -1,19 +1,24 @@
 """
-Free Proxy v3.0 - Advanced Proxy Validator with 2-Stage Validation
-
-2-этапная валидация:
-- Stage A: Быстрая проверка (httpbin, latency, timeout)
-- Stage B: Боевая проверка (целевые домены: OZON, WB, Avito)
+Free Proxy v3.1 - High Performance Proxy Validator
+Uses aiohttp for mass validation with persistent sessions and SOCKS support.
 """
 
 import asyncio
 import time
+import logging
+import json
 from dataclasses import dataclass, field
 from typing import Literal
 from enum import Enum
 
-import httpx
+import aiohttp
+try:
+    from aiohttp_socks import ProxyConnector
+    HAS_SOCKS = True
+except ImportError:
+    HAS_SOCKS = False
 
+logger = logging.getLogger(__name__)
 
 class ValidationStage(str, Enum):
     """Этапы валидации"""
@@ -50,8 +55,6 @@ class ProxyMetrics:
         
         Формула:
         score = 0.3*uptime + 0.25*latency_score + 0.3*success_rate - 0.15*ban_rate
-        
-        latency_score = max(0, 100 - latency_ms/20)
         """
         latency_score = max(0, 100 - self.latency_ms / 20)
         
@@ -86,7 +89,7 @@ class ProxyMetrics:
         else:
             self.failed_checks += 1
         
-        # Обновляем success_rate (скользящее среднее)
+        # Обновляем success_rate
         if self.total_checks > 0:
             self.success_rate = (self.successful_checks / self.total_checks) * 100
         
@@ -94,7 +97,7 @@ class ProxyMetrics:
         if status_code and status_code in (403, 429, 401):
             self.ban_rate = min(100, self.ban_rate + 5)
         
-        # Обновляем latency (exponential moving average)
+        # Обновляем latency (EMA)
         self.latency_ms = (self.latency_ms * 0.7) + (latency * 0.3)
         
         # Обновляем uptime (последние 10 проверок)
@@ -123,48 +126,46 @@ class ProxyValidationResult:
 
 class AsyncProxyValidator:
     """
-    Асинхронный валидатор прокси с 2-этапной проверкой
+    Высокопроизводительный асинхронный валидатор прокси
     """
     
     # Целевые домены для Stage B (микс нейтральных и боевых)
     TARGET_DOMAINS = [
-        "https://www.google.com",
-        "https://www.ozon.ru",
-        "https://www.wildberries.ru",
-        "https://www.avito.ru",
+        "http://www.google.com",
+        "http://www.ozon.ru",
+        "http://www.wildberries.ru",
+        "http://www.avito.ru",
     ]
     
     # Таймауты
-    STAGE_A_TIMEOUT = 5.0
-    STAGE_B_TIMEOUT = 10.0
+    STAGE_A_TIMEOUT = 3.0
+    STAGE_B_TIMEOUT = 7.0
     
     def __init__(
         self,
-        max_concurrent: int = 50,
+        max_concurrent: int = 200,
         stage_a_url: str = "http://httpbin.org/ip",
     ) -> None:
         self.max_concurrent = max_concurrent
         self.stage_a_url = stage_a_url
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._client: httpx.AsyncClient | None = None
+        self._session: aiohttp.ClientSession | None = None
     
     async def __aenter__(self) -> "AsyncProxyValidator":
-        self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=5.0,
-                read=10.0,
-                write=5.0,
-                pool=10.0,
-            ),
-            limits=httpx.Limits(max_keepalive_connections=100, max_connections=200),
-            follow_redirects=False,
+        self._session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(limit=self.max_concurrent, ssl=False),
+            timeout=aiohttp.ClientTimeout(total=self.STAGE_B_TIMEOUT + 5),
+            headers={"User-Agent": "FreeProxy/3.1"}
         )
         return self
     
     async def __aexit__(self, *args) -> None:
-        if self._client:
-            await self._client.aclose()
+        if self._session:
+            await self._session.close()
     
+    def _get_proxy_url(self, protocol: str, ip: str, port: int) -> str:
+        return f"{protocol}://{ip}:{port}"
+
     async def validate_stage_a(
         self,
         ip: str,
@@ -174,67 +175,59 @@ class AsyncProxyValidator:
         """
         Stage A: Быстрая валидация
         """
-        proxy_url = f"{protocol}://{ip}:{port}"
+        proxy_url = self._get_proxy_url(protocol, ip, port)
         result = ProxyValidationResult(
             ip=ip, port=port, protocol=protocol,
             stage=ValidationStage.STAGE_A, passed=False
         )
         
         async with self._semaphore:
+            if not self._session:
+                result.error = "Session not initialized"
+                return result
+
             start_time = time.perf_counter()
-            
             try:
-                # В httpx прокси задается при создании клиента
-                async with httpx.AsyncClient(
-                    proxy=proxy_url,
-                    verify=False,  # Бесплатные прокси часто имеют проблемы с SSL
-                    timeout=self.STAGE_A_TIMEOUT,
-                    follow_redirects=False,
-                ) as client:
-                    response = await client.get(self.stage_a_url)
+                if protocol.startswith("socks"):
+                    if not HAS_SOCKS:
+                        result.error = "SOCKS support not installed"
+                        return result
+                    connector = ProxyConnector.from_url(proxy_url, ssl=False)
+                    async with aiohttp.ClientSession(connector=connector) as s:
+                        async with s.get(self.stage_a_url, timeout=self.STAGE_A_TIMEOUT) as response:
+                            status = response.status
+                            data = await response.json()
+                else:
+                    async with self._session.get(self.stage_a_url, proxy=proxy_url, timeout=self.STAGE_A_TIMEOUT) as response:
+                        status = response.status
+                        data = await response.json()
                 
                 elapsed_ms = (time.perf_counter() - start_time) * 1000
                 
-                # Проверка статуса
-                if response.status_code != 200:
-                    result.error = f"HTTP {response.status_code}"
-                    result.metrics.update(success=False, latency=elapsed_ms, status_code=response.status_code)
+                if status != 200:
+                    result.error = f"HTTP {status}"
+                    result.metrics.update(success=False, latency=elapsed_ms, status_code=status)
                     return result
                 
-                # Проверка IP
-                try:
-                    data = response.json()
-                    response_ip = data.get("origin", "").split(",")[0].strip()
-                    
-                    if response_ip != ip:
-                        result.error = f"IP mismatch: {response_ip} != {ip}"
-                        result.metrics.update(success=False, latency=elapsed_ms, status_code=200)
-                        return result
-                        
-                except Exception as e:
-                    result.error = f"JSON parse error: {e}"
+                response_ip = data.get("origin", "").split(",")[0].strip()
+                if response_ip != ip:
+                    result.error = f"IP mismatch: {response_ip} != {ip}"
                     result.metrics.update(success=False, latency=elapsed_ms, status_code=200)
                     return result
                 
-                # Успех
                 result.passed = True
                 result.latency_ms = elapsed_ms
                 result.metrics.update(success=True, latency=elapsed_ms, status_code=200)
                 
-            except httpx.TimeoutException:
-                result.error = f"Timeout >{self.STAGE_A_TIMEOUT}s"
-                result.metrics.update(success=False, latency=self.STAGE_A_TIMEOUT * 1000, status_code=None)
-                
-            except (httpx.ConnectError, httpx.ProxyError) as e:
-                result.error = f"Network error: {type(e).__name__}"
-                result.metrics.update(success=False, latency=10000, status_code=None)
-                
+            except asyncio.TimeoutError:
+                result.error = "Timeout"
+                result.metrics.update(success=False, latency=self.STAGE_A_TIMEOUT * 1000)
             except Exception as e:
-                result.error = f"Error: {str(e)}"
-                result.metrics.update(success=False, latency=10000, status_code=None)
+                result.error = f"Error: {type(e).__name__}"
+                result.metrics.update(success=False, latency=5000)
         
         return result
-    
+
     async def validate_stage_b(
         self,
         ip: str,
@@ -244,7 +237,7 @@ class AsyncProxyValidator:
         """
         Stage B: Боевая валидация
         """
-        proxy_url = f"{protocol}://{ip}:{port}"
+        proxy_url = self._get_proxy_url(protocol, ip, port)
         result = ProxyValidationResult(
             ip=ip, port=port, protocol=protocol,
             stage=ValidationStage.STAGE_B, passed=False
@@ -255,43 +248,48 @@ class AsyncProxyValidator:
         total_latency = 0.0
         
         async with self._semaphore:
+            if not self._session:
+                return result
+
+            if protocol.startswith("socks"):
+                if not HAS_SOCKS:
+                    result.error = "SOCKS support not installed"
+                    return result
+                connector = ProxyConnector.from_url(proxy_url, ssl=False)
+                session_to_use = aiohttp.ClientSession(connector=connector)
+            else:
+                session_to_use = self._session
+
             try:
-                # В httpx прокси задается при создании клиента
-                async with httpx.AsyncClient(
-                    proxy=proxy_url,
-                    verify=False,
-                    timeout=self.STAGE_B_TIMEOUT,
-                    follow_redirects=True,
-                ) as client:
-                    for domain in self.TARGET_DOMAINS:
-                        start_time = time.perf_counter()
-                        
-                        try:
-                            response = await client.head(domain)
-                            
+                for domain in self.TARGET_DOMAINS:
+                    start_time = time.perf_counter()
+                    try:
+                        get_kwargs = {"timeout": self.STAGE_B_TIMEOUT}
+                        if not protocol.startswith("socks"):
+                            get_kwargs["proxy"] = proxy_url
+
+                        async with session_to_use.head(domain, **get_kwargs) as response:
                             elapsed_ms = (time.perf_counter() - start_time) * 1000
                             total_latency += elapsed_ms
-                            
-                            # Любой ответ 2xx-4xx считаем за успех сети
-                            if 200 <= response.status_code < 500:
-                                target_results[domain] = {"status": "ok", "code": response.status_code, "latency": elapsed_ms}
+                            if response.status < 500:
+                                target_results[domain] = {"status": "ok", "code": response.status, "latency": elapsed_ms}
                                 successful += 1
                             else:
-                                target_results[domain] = {"status": "fail", "code": response.status_code, "latency": elapsed_ms}
-                            
-                        except Exception as e:
-                            target_results[domain] = {"status": "error", "error": str(e), "latency": self.STAGE_B_TIMEOUT * 1000}
+                                target_results[domain] = {"status": "fail", "code": response.status, "latency": elapsed_ms}
+                    except Exception:
+                        target_results[domain] = {"status": "error", "latency": self.STAGE_B_TIMEOUT * 1000}
+                
+                if protocol.startswith("socks"):
+                    await session_to_use.close()
+
             except Exception as e:
                 result.error = f"Client error: {str(e)}"
                 return result
         
-        # Средняя latency
         avg_latency = total_latency / len(self.TARGET_DOMAINS) if total_latency > 0 else 0
-        
         result.target_results = target_results
         result.latency_ms = avg_latency
         
-        # Требуем ≥1 успешного домена для Stage B
         if successful >= 1:
             result.passed = True
             result.metrics.update(success=True, latency=avg_latency)
@@ -310,40 +308,19 @@ class AsyncProxyValidator:
     ) -> ProxyValidationResult:
         """
         Полная 2-этапная валидация
-        
-        Args:
-            skip_stage_b: Если True, только Stage A
-        
-        Returns:
-            ProxyValidationResult с полным результатом
         """
-        # Stage A
         result_a = await self.validate_stage_a(ip, port, protocol)
-        
         if not result_a.passed:
             return result_a
         
-        # Stage B (если нужен)
         if not skip_stage_b:
             result_b = await self.validate_stage_b(ip, port, protocol)
-            
-            # Объединяем результаты
             result_a.latency_ms = (result_a.latency_ms + result_b.latency_ms) / 2
-            result_b.metrics = result_a.metrics  # Сохраняем историю метрик
-            
-            if result_b.passed:
-                result_b.stage = ValidationStage.PASSED
-            else:
-                result_b.stage = ValidationStage.FAILED
-            
+            result_b.metrics = result_a.metrics
+            result_b.stage = ValidationStage.PASSED if result_b.passed else ValidationStage.FAILED
             return result_b
         
-        # Только Stage A
-        if result_a.passed:
-            result_a.stage = ValidationStage.PASSED
-        else:
-            result_a.stage = ValidationStage.FAILED
-        
+        result_a.stage = ValidationStage.PASSED if result_a.passed else ValidationStage.FAILED
         return result_a
     
     async def validate_multiple(
@@ -354,62 +331,17 @@ class AsyncProxyValidator:
     ) -> list[ProxyValidationResult]:
         """
         Валидировать несколько прокси
-        
-        Args:
-            proxies: Список кортежей (ip, port, protocol)
-            skip_stage_b: Только Stage A
-            show_progress: Показывать прогресс
-        
-        Returns:
-            Список результатов
         """
         tasks = [
             self.validate_full(ip, port, protocol, skip_stage_b)
             for ip, port, protocol in proxies
         ]
         
-        results = []
-        
         if show_progress:
             try:
                 from tqdm.asyncio import tqdm_asyncio
-                results = await tqdm_asyncio.gather(*tasks, desc="Validation", unit="proxy")
+                return await tqdm_asyncio.gather(*tasks, desc="Validation", unit="proxy")
             except ImportError:
-                # Без прогресса
-                results = await asyncio.gather(*tasks)
-        else:
-            results = await asyncio.gather(*tasks)
+                return await asyncio.gather(*tasks)
         
-        return results
-
-
-async def main():
-    """Пример использования"""
-    test_proxies = [
-        ("8.219.97.248", 80, "http"),
-        ("185.199.229.156", 443, "https"),
-    ]
-    
-    async with AsyncProxyValidator(max_concurrent=10) as validator:
-        print("=== Stage A Only ===")
-        results = await validator.validate_multiple(test_proxies, skip_stage_b=True, show_progress=True)
-        
-        for r in results:
-            print(r)
-            if r.passed:
-                print(f"  Score: {r.metrics.calculate_score():.1f}")
-                print(f"  Pool: {r.metrics.get_pool().value}")
-        
-        print("\n=== Full Validation (Stage A + B) ===")
-        results = await validator.validate_multiple(test_proxies, skip_stage_b=False, show_progress=True)
-        
-        for r in results:
-            print(r)
-            if r.passed:
-                print(f"  Targets: {sum(1 for v in r.target_results.values() if v.get('status') in ('ok', 'warning'))}/{len(validator.TARGET_DOMAINS)}")
-                print(f"  Score: {r.metrics.calculate_score():.1f}")
-                print(f"  Pool: {r.metrics.get_pool().value}")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        return await asyncio.gather(*tasks)
