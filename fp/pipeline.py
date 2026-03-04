@@ -313,6 +313,11 @@ class ProxyPipeline:
             if not result.passed and result.metrics.total_checks <= 1:
                 # Не отправляем в карантин после первой неудачи
                 pool = ProxyPool.WARM
+            
+            # Если score высокий (≥80) → HOT, даже если Stage A не прошёл
+            # Это для стабильных GitHub Raw источников
+            if score >= 80:
+                pool = ProxyPool.HOT
 
             # Обновляем БД
             await self._db.update_metrics(proxy_id, result.metrics, score)
