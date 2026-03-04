@@ -7,6 +7,7 @@ CLI Module
 
 import json
 import sys
+import asyncio
 from typing import Annotated
 
 import typer
@@ -15,6 +16,10 @@ from rich.table import Table
 
 from fp.core import FreeProxy
 from fp.errors import FreeProxyException, NoWorkingProxyError
+from fp.database import ProxyDatabase
+from fp.pipeline import ProxyPipeline
+from fp.source_health import SourceHealthManager
+from fp.slo_monitor import SLOMonitor
 
 # Инициализация typer
 app = typer.Typer(
@@ -399,3 +404,255 @@ def main(
 
 if __name__ == "__main__":
     app()
+
+
+# ============================================================================
+# OPERATOR CLI COMMANDS (v3.1)
+# ============================================================================
+
+operator_app = typer.Typer(name="operator", help="Operator commands for pool management")
+app.add_typer(operator_app, name="op")
+
+
+@operator_app.command("status")
+def pool_status():
+    """Pool status: HOT/WARM/QUARANTINE统计"""
+    
+    async def _run():
+        async with ProxyDatabase() as db:
+            stats = await db.get_stats()
+            
+            console.print("[bold]Proxy Pool Status[/bold]\n")
+            
+            # Table
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Pool", style="cyan")
+            table.add_column("Count", justify="right")
+            table.add_column("Target", justify="right")
+            table.add_column("Status", style="green")
+            
+            # HOT
+            hot_target = 30
+            hot_status = "✓ OK" if stats["hot_count"] >= 20 else "⚠ LOW" if stats["hot_count"] >= 10 else "✗ CRITICAL"
+            table.add_row("HOT", str(stats["hot_count"]), str(hot_target), hot_status)
+            
+            # WARM
+            table.add_row("WARM", str(stats["warm_number"]), "-", "✓")
+            
+            # QUARANTINE
+            table.add_row("QUARANTINE", str(stats["quarantine_count"]), "-", "✓")
+            
+            # TOTAL
+            table.add_row("TOTAL", str(stats["total_proxies"]), "-", "✓")
+            
+            console.print(table)
+            
+            # Stats
+            console.print(f"\n[bold]Avg Score:[/bold] {stats['avg_score']:.1f}")
+            console.print(f"[bold]Checks 24h:[/bold] {stats['checks_24h']} ({stats['success_24h']} successful)")
+            console.print(f"[bold]Banlist:[/bold] {stats['banlist_count']} IPs")
+    
+    asyncio.run(_run())
+
+
+@operator_app.command("source-health")
+def source_health():
+    """Source health: pass rate, fail streak, disabled sources"""
+    
+    async def _run():
+        async with SourceHealthManager() as manager:
+            stats = manager.get_stats()
+            
+            console.print("[bold]Source Health[/bold]\n")
+            
+            # Summary
+            console.print(f"Total: {stats['total_sources']} | Available: {stats['available']} | Disabled: {stats['disabled']}")
+            console.print(f"Avg Pass Rate: {stats['avg_pass_rate']:.1f}%\n")
+            
+            # Top errors
+            if stats["top_errors"]:
+                console.print("[bold red]Top Errors:[/bold red]")
+                for error, count in stats["top_errors"]:
+                    console.print(f"  {error}: {count}")
+                console.print()
+            
+            # Disabled sources
+            disabled = manager.get_disabled_sources()
+            if disabled:
+                console.print("[bold red]Disabled Sources:[/bold red]")
+                table = Table(show_header=True, header_style="bold red")
+                table.add_column("Name", style="cyan")
+                table.add_column("Fail Streak", justify="right")
+                table.add_column("Pass Rate", justify="right")
+                table.add_column("Until", style="yellow")
+                
+                for source in disabled[:10]:
+                    table.add_row(
+                        source["name"],
+                        str(source["fail_streak"]),
+                        f"{source['pass_rate']:.1f}%",
+                        source["disabled_until"].split("T")[0],
+                    )
+                
+                console.print(table)
+    
+    asyncio.run(_run())
+
+
+@operator_app.command("alerts")
+def slo_alerts():
+    """SLO alerts: active alerts and summary"""
+    
+    async def _run():
+        async with SLOMonitor() as monitor:
+            await monitor.check_slo()
+            summary = monitor.get_alert_summary()
+            
+            console.print("[bold]SLO Alerts[/bold]\n")
+            console.print(f"Total: {summary['total']} | Critical: {summary['critical']} | Warning: {summary['warning']} | Info: {summary['info']}\n")
+            
+            if summary["alerts"]:
+                table = Table(show_header=True, header_style="bold magenta")
+                table.add_column("Severity", style="cyan")
+                table.add_column("Message")
+                table.add_column("Since", style="yellow")
+                
+                for alert in summary["alerts"]:
+                    severity_style = "bold red" if alert["severity"] == "critical" else "bold yellow" if alert["severity"] == "warning" else "green"
+                    since = alert["timestamp"].split("T")[1].split(".")[0]
+                    table.add_row(
+                        f"[{severity_style}]{alert['severity'].upper()}[/{severity_style}]",
+                        alert["message"],
+                        since,
+                    )
+                
+                console.print(table)
+            else:
+                console.print("[green]✓ No active alerts[/green]")
+    
+    asyncio.run(_run())
+
+
+@operator_app.command("rebuild-hot")
+def rebuild_hot_pool(
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Max proxies to recheck")] = 100,
+):
+    """Rebuild HOT pool: recheck quarantine proxies"""
+    
+    async def _run():
+        from fp.manager import ProxyManager
+        
+        async with ProxyManager() as manager:
+            console.print(f"[bold]Rebuilding HOT pool (limit: {limit})...[/bold]\n")
+            
+            report = await manager.refresh_quarantine(limit=limit)
+            
+            console.print(f"Total: {report['total']}")
+            console.print(f"[green]Upgraded:[/green] {report['upgraded']}")
+            console.print(f"[red]Still Bad:[/red] {report['still_bad']}")
+    
+    asyncio.run(_run())
+
+
+@operator_app.command("explain")
+def explain_proxy(
+    ip: Annotated[str, typer.Argument(help="Proxy IP")],
+    port: Annotated[int, typer.Argument(help="Proxy port")],
+):
+    """Explain proxy: почему в HOT/WARM/QUARANTINE"""
+    
+    async def _run():
+        async with ProxyDatabase() as db:
+            proxy_id = await db.get_proxy_id(ip, port, "http")
+            
+            if not proxy_id:
+                console.print(f"[red]Proxy {ip}:{port} not found[/red]")
+                return
+            
+            # Get metrics
+            cursor = await db._conn.execute(
+                "SELECT pool, score, latency_ms, uptime, success_rate, ban_rate FROM proxies p JOIN metrics m ON p.id = m.proxy_id WHERE p.id = ?",
+                (proxy_id,),
+            )
+            row = await cursor.fetchone()
+            
+            if not row:
+                console.print("[red]No data[/red]")
+                return
+            
+            pool, score, latency, uptime, success_rate, ban_rate = row
+            
+            console.print(f"[bold]Proxy {ip}:{port}[/bold]\n")
+            
+            # Pool badge
+            pool_badge = "🟢 HOT" if pool == "hot" else "🟡 WARM" if pool == "warm" else "🔴 QUARANTINE"
+            console.print(f"Pool: {pool_badge}")
+            console.print(f"Score: {score:.1f}/100")
+            
+            # Metrics
+            table = Table(show_header=False, box=None)
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value")
+            
+            table.add_row("Latency", f"{latency:.0f}ms")
+            table.add_row("Uptime", f"{uptime:.1f}%")
+            table.add_row("Success Rate", f"{success_rate:.1f}%")
+            table.add_row("Ban Rate", f"{ban_rate:.1f}%")
+            
+            console.print(table)
+            
+            # Explanation
+            console.print("\n[bold]Explanation:[/bold]")
+            if pool == "hot":
+                console.print("✓ High score, reliable proxy")
+            elif pool == "warm":
+                console.print("⚠ Moderate score, needs more validation")
+            else:
+                console.print(f"✗ Low score ({score:.1f}). Reasons:")
+                if uptime < 50:
+                    console.print(f"  - Low uptime ({uptime:.1f}%)")
+                if success_rate < 50:
+                    console.print(f"  - Low success rate ({success_rate:.1f}%)")
+                if ban_rate > 20:
+                    console.print(f"  - High ban rate ({ban_rate:.1f}%)")
+                if latency > 2000:
+                    console.print(f"  - High latency ({latency:.0f}ms)")
+    
+    asyncio.run(_run())
+
+
+@operator_app.command("run-pipeline")
+def run_pipeline(
+    skip_targeted: Annotated[bool, typer.Option("--skip-targeted", help="Skip Stage B validation")] = False,
+):
+    """Run full pipeline cycle"""
+    
+    async def _run():
+        async with ProxyPipeline(max_concurrent=50) as pipeline:
+            console.print("[bold]Running Pipeline Cycle...[/bold]\n")
+            
+            report = await pipeline.run_cycle(skip_targeted=skip_targeted)
+            
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Stage", style="cyan")
+            table.add_column("Count", justify="right")
+            
+            table.add_row("Collected", str(report.collected))
+            table.add_row("Deduped", str(report.deduped))
+            table.add_row("Validated Fast", str(report.validated_fast))
+            table.add_row("Validated Targeted", str(report.validated_targeted))
+            table.add_row("HOT", f"[green]{report.hot_number}[/green]")
+            table.add_row("WARM", f"[yellow]{report.warm_number}[/yellow]")
+            table.add_row("Quarantine", f"[red]{report.quarantine_count}[/red]")
+            
+            console.print(table)
+            
+            console.print(f"\n[bold]Avg Score:[/bold] {report.avg_score:.1f}")
+            console.print(f"[bold]Avg Latency:[/bold] {report.avg_latency:.0f}ms")
+            
+            if report.top_fail_reasons:
+                console.print("\n[bold red]Top Fail Reasons:[/bold red]")
+                for reason, count in sorted(report.top_fail_reasons.items(), key=lambda x: x[1], reverse=True)[:5]:
+                    console.print(f"  {reason}: {count}")
+    
+    asyncio.run(_run())
