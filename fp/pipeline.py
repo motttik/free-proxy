@@ -303,11 +303,17 @@ class ProxyPipeline:
             
             if proxy_id is None:
                 continue
-            
+
             # Расчёт score
             score = result.metrics.calculate_score()
             pool = result.metrics.get_pool()
             
+            # Для НОВЫХ прокси (первая проверка) даём презумпцию невиновности
+            # Если прокси не прошла первую проверку, всё равно даём WARM вместо QUARANTINE
+            if not result.passed and result.metrics.total_checks <= 1:
+                # Не отправляем в карантин после первой неудачи
+                pool = ProxyPool.WARM
+
             # Обновляем БД
             await self._db.update_metrics(proxy_id, result.metrics, score)
             await self._db.update_pool(proxy_id, pool)

@@ -53,11 +53,20 @@ class ProxyMetrics:
         """
         Расчёт общего score (0-100)
         
-        Формула:
-        score = 0.3*uptime + 0.25*latency_score + 0.3*success_rate - 0.15*ban_rate
+        Формула с учётом количества проверок:
+        - Мало проверок (<5) → более мягкая оценка
+        - Много проверок (≥5) → полная формула
         """
         latency_score = max(0, 100 - self.latency_ms / 20)
         
+        # Если мало проверок, даём "кредит доверия"
+        if self.total_checks < 3:
+            # Для новых прокси используем оптимистичную оценку
+            base_score = 70  # Базовый score для новых
+            latency_bonus = latency_score * 0.25
+            return max(50, min(85, base_score + latency_bonus))
+        
+        # Стандартная формула для проверенных прокси
         score = (
             0.30 * self.uptime +
             0.25 * latency_score +
@@ -78,32 +87,47 @@ class ProxyMetrics:
         else:
             return ProxyPool.QUARANTINE
     
-    def update(self, success: bool, latency: float, status_code: int | None = None) -> None:
-        """Обновить метрики после проверки"""
+    def update(self, success: bool, latency: float, status_code: int | None = None, is_first_check: bool = False) -> None:
+        """
+        Обновить метрики после проверки
+        
+        Args:
+            success: Успешна ли проверка
+            latency: Задержка в мс
+            status_code: HTTP статус код
+            is_first_check: Это первая проверка прокси?
+        """
         self.total_checks += 1
         self.last_check = time.time()
-        
+
         if success:
             self.successful_checks += 1
             self.last_success = time.time()
         else:
             self.failed_checks += 1
-        
-        # Обновляем success_rate
+
+        # Обновляем success_rate (скользящее среднее)
         if self.total_checks > 0:
             self.success_rate = (self.successful_checks / self.total_checks) * 100
-        
+
         # Обновляем ban_rate (403/429 считаем баном)
         if status_code and status_code in (403, 429, 401):
             self.ban_rate = min(100, self.ban_rate + 5)
-        
+
         # Обновляем latency (EMA)
-        self.latency_ms = (self.latency_ms * 0.7) + (latency * 0.3)
-        
+        if latency > 0:
+            self.latency_ms = (self.latency_ms * 0.7) + (latency * 0.3)
+
         # Обновляем uptime (последние 10 проверок)
         recent_window = min(10, self.total_checks)
         recent_success = min(self.successful_checks, recent_window)
         self.uptime = (recent_success / recent_window) * 100 if recent_window > 0 else 100
+        
+        # ПРЕЗУМПЦИЯ НЕВИНОВНОСТИ для новых прокси
+        # Если это первая проверка и она неудачна, не обнуляем uptime/success_rate полностью
+        if is_first_check and not success:
+            self.uptime = max(self.uptime, 50)  # Минимум 50% для первой проверки
+            self.success_rate = max(self.success_rate, 50)  # Минимум 50%
 
 
 @dataclass
