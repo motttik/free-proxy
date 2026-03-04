@@ -126,22 +126,22 @@ class AsyncProxyValidator:
     Асинхронный валидатор прокси с 2-этапной проверкой
     """
     
-    # Целевые домены для Stage B
+    # Целевые домены для Stage B (микс нейтральных и боевых)
     TARGET_DOMAINS = [
+        "https://www.google.com",
         "https://www.ozon.ru",
         "https://www.wildberries.ru",
         "https://www.avito.ru",
-        "https://www.google.com",
     ]
     
     # Таймауты
-    STAGE_A_TIMEOUT = 2.0
-    STAGE_B_TIMEOUT = 5.0
+    STAGE_A_TIMEOUT = 5.0
+    STAGE_B_TIMEOUT = 10.0
     
     def __init__(
         self,
         max_concurrent: int = 50,
-        stage_a_url: str = "https://httpbin.org/ip",
+        stage_a_url: str = "http://httpbin.org/ip",
     ) -> None:
         self.max_concurrent = max_concurrent
         self.stage_a_url = stage_a_url
@@ -173,12 +173,6 @@ class AsyncProxyValidator:
     ) -> ProxyValidationResult:
         """
         Stage A: Быстрая валидация
-        
-        - Проверка httpbin.org/ip
-        - Замер latency
-        - Timeout < 2s
-        - Status == 200
-        - IP match
         """
         proxy_url = f"{protocol}://{ip}:{port}"
         result = ProxyValidationResult(
@@ -190,11 +184,14 @@ class AsyncProxyValidator:
             start_time = time.perf_counter()
             
             try:
-                response = await self._client.get(
-                    self.stage_a_url,
+                # В httpx прокси задается при создании клиента
+                async with httpx.AsyncClient(
                     proxy=proxy_url,
+                    verify=False,  # Бесплатные прокси часто имеют проблемы с SSL
                     timeout=self.STAGE_A_TIMEOUT,
-                )
+                    follow_redirects=False,
+                ) as client:
+                    response = await client.get(self.stage_a_url)
                 
                 elapsed_ms = (time.perf_counter() - start_time) * 1000
                 
@@ -226,18 +223,14 @@ class AsyncProxyValidator:
                 
             except httpx.TimeoutException:
                 result.error = f"Timeout >{self.STAGE_A_TIMEOUT}s"
-                result.metrics.update(success=False, latency=10000, status_code=None)
+                result.metrics.update(success=False, latency=self.STAGE_A_TIMEOUT * 1000, status_code=None)
                 
-            except httpx.ConnectError as e:
-                result.error = f"Connect error: {e}"
-                result.metrics.update(success=False, latency=10000, status_code=None)
-                
-            except httpx.ProxyError as e:
-                result.error = f"Proxy error: {e}"
+            except (httpx.ConnectError, httpx.ProxyError) as e:
+                result.error = f"Network error: {type(e).__name__}"
                 result.metrics.update(success=False, latency=10000, status_code=None)
                 
             except Exception as e:
-                result.error = f"Unexpected error: {e}"
+                result.error = f"Error: {str(e)}"
                 result.metrics.update(success=False, latency=10000, status_code=None)
         
         return result
@@ -250,11 +243,6 @@ class AsyncProxyValidator:
     ) -> ProxyValidationResult:
         """
         Stage B: Боевая валидация
-        
-        - HEAD запросы к целевым доменам
-        - Timeout < 5s
-        - Мягкий тест (4xx = warning, 5xx = fail)
-        - Требуется ≥2 из 4 доменов
         """
         proxy_url = f"{protocol}://{ip}:{port}"
         result = ProxyValidationResult(
@@ -267,41 +255,35 @@ class AsyncProxyValidator:
         total_latency = 0.0
         
         async with self._semaphore:
-            for domain in self.TARGET_DOMAINS:
-                start_time = time.perf_counter()
-                
-                try:
-                    response = await self._client.head(
-                        domain,
-                        proxy=proxy_url,
-                        timeout=self.STAGE_B_TIMEOUT,
-                    )
-                    
-                    elapsed_ms = (time.perf_counter() - start_time) * 1000
-                    total_latency += elapsed_ms
-                    
-                    # 2xx = успех
-                    if 200 <= response.status_code < 300:
-                        target_results[domain] = {"status": "ok", "code": response.status_code, "latency": elapsed_ms}
-                        successful += 1
-                    
-                    # 4xx = warning (считаем как успех для мягкого теста)
-                    elif 400 <= response.status_code < 500:
-                        target_results[domain] = {"status": "warning", "code": response.status_code, "latency": elapsed_ms}
-                        successful += 1
-                    
-                    # 5xx = fail
-                    elif response.status_code >= 500:
-                        target_results[domain] = {"status": "fail", "code": response.status_code, "latency": elapsed_ms}
-                    
-                except httpx.TimeoutException:
-                    target_results[domain] = {"status": "timeout", "code": None, "latency": 5000}
-                    
-                except httpx.ConnectError:
-                    target_results[domain] = {"status": "connect_error", "code": None, "latency": 5000}
-                    
-                except Exception as e:
-                    target_results[domain] = {"status": "error", "error": str(e), "latency": 5000}
+            try:
+                # В httpx прокси задается при создании клиента
+                async with httpx.AsyncClient(
+                    proxy=proxy_url,
+                    verify=False,
+                    timeout=self.STAGE_B_TIMEOUT,
+                    follow_redirects=True,
+                ) as client:
+                    for domain in self.TARGET_DOMAINS:
+                        start_time = time.perf_counter()
+                        
+                        try:
+                            response = await client.head(domain)
+                            
+                            elapsed_ms = (time.perf_counter() - start_time) * 1000
+                            total_latency += elapsed_ms
+                            
+                            # Любой ответ 2xx-4xx считаем за успех сети
+                            if 200 <= response.status_code < 500:
+                                target_results[domain] = {"status": "ok", "code": response.status_code, "latency": elapsed_ms}
+                                successful += 1
+                            else:
+                                target_results[domain] = {"status": "fail", "code": response.status_code, "latency": elapsed_ms}
+                            
+                        except Exception as e:
+                            target_results[domain] = {"status": "error", "error": str(e), "latency": self.STAGE_B_TIMEOUT * 1000}
+            except Exception as e:
+                result.error = f"Client error: {str(e)}"
+                return result
         
         # Средняя latency
         avg_latency = total_latency / len(self.TARGET_DOMAINS) if total_latency > 0 else 0
@@ -309,12 +291,12 @@ class AsyncProxyValidator:
         result.target_results = target_results
         result.latency_ms = avg_latency
         
-        # Требуем ≥2 успешных домена
-        if successful >= 2:
+        # Требуем ≥1 успешного домена для Stage B
+        if successful >= 1:
             result.passed = True
             result.metrics.update(success=True, latency=avg_latency)
         else:
-            result.error = f"Only {successful}/{len(self.TARGET_DOMAINS)} targets accessible"
+            result.error = f"Targets not accessible (0/{len(self.TARGET_DOMAINS)})"
             result.metrics.update(success=False, latency=avg_latency)
         
         return result

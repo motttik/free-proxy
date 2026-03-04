@@ -242,55 +242,72 @@ class ProxyManager:
         protocol: str | None = None,
         min_score: float = 50,
         use_quarantine: bool = False,
+        profile: str = "universal",
     ) -> dict | None:
         """
         Получить рабочую прокси
         
+        Профили:
+        - universal: баланс (по умолчанию, сортировка по score)
+        - speed-first: сортировка по минимальной задержке (latency)
+        - stability-first: сортировка по максимальному uptime
+        
         Приоритет: HOT → WARM → QUARANTINE (если use_quarantine=True)
-        
-        Args:
-            country: Код страны
-            protocol: Протокол
-            min_score: Минимальный score
-            use_quarantine: Использовать ли карантин
-        
-        Returns:
-            Прокси dict или None
         """
         assert self._db is not None
         
+        # Функция для сортировки пула по профилю
+        async def fetch_pool(pool: ProxyPool) -> list[dict]:
+            query = f"""
+                SELECT p.ip, p.port, p.protocol, p.country, p.source, 
+                       m.score, m.latency_ms, m.uptime
+                FROM proxies p
+                JOIN metrics m ON p.id = m.proxy_id
+                WHERE p.pool = ?
+            """
+            params = [pool.value]
+            
+            if country:
+                query += " AND p.country = ?"
+                params.append(country)
+            if protocol:
+                query += " AND p.protocol = ?"
+                params.append(protocol)
+            
+            if profile == "speed-first":
+                query += " ORDER BY m.latency_ms ASC LIMIT 20"
+            elif profile == "stability-first":
+                query += " ORDER BY m.uptime DESC, m.score DESC LIMIT 20"
+            else:  # universal
+                query += " ORDER BY m.score DESC LIMIT 20"
+                
+            cursor = await self._db._conn.execute(query, params)
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "ip": r[0], "port": r[1], "protocol": r[2], "country": r[3],
+                    "source": r[4], "score": r[5], "latency_ms": r[6], "uptime": r[7]
+                }
+                for r in rows
+            ]
+
         # Сначала HOT
-        hot = await self._db.get_hot_proxies(limit=10)
-        
+        hot = await fetch_pool(ProxyPool.HOT)
         for proxy in hot:
             if proxy["score"] >= min_score:
-                if country and proxy["country"] != country:
-                    continue
-                if protocol and proxy["protocol"] != protocol:
-                    continue
                 return proxy
         
         # Потом WARM
-        warm = await self._db.get_warm_proxies(limit=10)
-        
+        warm = await fetch_pool(ProxyPool.WARM)
         for proxy in warm:
             if proxy["score"] >= min_score:
-                if country and proxy["country"] != country:
-                    continue
-                if protocol and proxy["protocol"] != protocol:
-                    continue
                 return proxy
         
         # Quarantine (если разрешено)
         if use_quarantine:
-            quarantine = await self._db.get_quarantine_proxies(limit=10)
-            
+            quarantine = await fetch_pool(ProxyPool.QUARANTINE)
             for proxy in quarantine:
                 if proxy["score"] >= min_score:
-                    if country and proxy["country"] != country:
-                        continue
-                    if protocol and proxy["protocol"] != protocol:
-                        continue
                     return proxy
         
         return None

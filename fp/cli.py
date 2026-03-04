@@ -414,6 +414,35 @@ operator_app = typer.Typer(name="operator", help="Operator commands for pool man
 app.add_typer(operator_app, name="op")
 
 
+@operator_app.command("discover")
+def discover_sources(
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Max results from GitHub")] = 50,
+):
+    """Search for new proxy sources on GitHub"""
+    
+    async def _run():
+        from fp.github_discovery import GitHubDiscovery
+        
+        async with GitHubDiscovery(max_results=limit) as discovery:
+            console.print("[bold cyan]Searching for new sources on GitHub...[/bold cyan]")
+            new_sources = await discovery.discover_new_sources()
+            
+            stats = discovery.get_discovery_stats()
+            console.print(f"\nDiscovered [bold green]{stats['total_discovered']}[/bold green] sources")
+            
+            if stats["sources"]:
+                table = Table(title="Top Candidates")
+                table.add_column("Source Name", style="cyan")
+                table.add_column("Repo", style="magenta")
+                table.add_column("Status", style="green")
+                
+                for s in stats["sources"][:10]:
+                    table.add_row(s["name"], s["repo"], s["status"])
+                
+                console.print(table)
+                
+    asyncio.run(_run())
+
 @operator_app.command("status")
 def pool_status():
     """Pool status: HOT/WARM/QUARANTINE统计"""
@@ -620,6 +649,38 @@ def explain_proxy(
     
     asyncio.run(_run())
 
+
+@operator_app.command("get")
+def op_get_proxy(
+    profile: Annotated[str, typer.Option("--profile", help="Профиль: universal, speed-first, stability-first")] = "universal",
+    country: Annotated[str | None, typer.Option("--country", "-c", help="Код страны")] = None,
+    protocol: Annotated[str | None, typer.Option("--protocol", "-p", help="Протокол")] = None,
+    min_score: Annotated[float, typer.Option("--min-score", help="Минимальный score")] = 50.0,
+):
+    """Get best proxy from pool by profile"""
+    
+    async def _run():
+        from fp.manager import ProxyManager
+        
+        async with ProxyManager() as manager:
+            proxy = await manager.get_proxy(
+                country=country,
+                protocol=protocol,
+                min_score=min_score,
+                profile=profile,
+            )
+            
+            if proxy:
+                console.print(f"[bold green]✓ Found Proxy ({profile})[/bold green]")
+                console.print(f"URL: {proxy['protocol']}://{proxy['ip']}:{proxy['port']}")
+                console.print(f"Score: {proxy['score']:.1f}/100")
+                console.print(f"Latency: {proxy['latency_ms']:.0f}ms")
+                console.print(f"Uptime: {proxy.get('uptime', 100):.1f}%")
+                console.print(f"Country: {proxy['country']}")
+            else:
+                console.print("[red]✗ No suitable proxy found in pool[/red]")
+                
+    asyncio.run(_run())
 
 @operator_app.command("run-pipeline")
 def run_pipeline(

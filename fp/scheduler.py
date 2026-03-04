@@ -100,6 +100,15 @@ class ProxyScheduler:
             replace_existing=True,
         )
         
+        # 5. GitHub Auto-Discovery (раз в сутки)
+        self._scheduler.add_job(
+            self._run_discovery,
+            CronTrigger(hour=4, minute=0),
+            id="github_discovery",
+            name="Search for new sources on GitHub",
+            replace_existing=True,
+        )
+        
         # Запускаем планировщик
         self._scheduler.start()
         self._running = True
@@ -127,6 +136,24 @@ class ProxyScheduler:
             await self._manager.__aexit__(None, None, None)
         
         logger.info("Proxy Scheduler stopped")
+    
+    async def _run_discovery(self) -> None:
+        """Поиск новых источников на GitHub"""
+        from fp.github_discovery import GitHubDiscovery
+        
+        logger.info("Task: Running GitHub discovery...")
+        
+        try:
+            async with GitHubDiscovery() as discovery:
+                new_sources = await discovery.discover_new_sources()
+                logger.info(f"Discovered {len(new_sources)} new candidates on GitHub")
+                
+                # Запускаем sandbox-тесты для кандидатов
+                for source in new_sources:
+                    await discovery.sandbox_test(source.url)
+                    
+        except Exception as e:
+            logger.error(f"Error in _run_discovery: {e}")
     
     async def _refresh_quarantine(self) -> None:
         """Recheck прокси из карантина"""

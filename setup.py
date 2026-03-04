@@ -53,7 +53,7 @@ setuptools.setup(
         "lxml>=5.0.0",
         "requests>=2.31.0",
         "aiohttp>=3.9.0",
-        "httpx>=0.25.0",
+        "httpx[socks]>=0.25.0",
         "typer>=0.9.0",
         "rich>=13.0.0",
         "aiosqlite>=0.22.0",

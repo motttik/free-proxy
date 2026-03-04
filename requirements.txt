@@ -4,7 +4,7 @@ requests>=2.32.3
 
 # Async HTTP
 aiohttp>=3.9.0
-httpx>=0.26.0
+httpx[socks]>=0.26.0
 
 # CLI
 typer>=0.9.0
