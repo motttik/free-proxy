@@ -4,11 +4,10 @@
 
 [![Version](https://img.shields.io/pypi/v/free-proxy.svg)](https://pypi.org/project/free-proxy/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/free-proxy.svg)](https://pypi.org/project/free-proxy/)
-[![License](https://img.shields.io/pypi/l/free-proxy.svg)](https://github.com/jundymek/free-proxy/blob/master/LICENSE)
+[![License](https://img.shields.io/pypi/l/free-proxy.svg)](https://github.com/motttik/free-proxy/blob/master/LICENSE)
 [![Downloads](https://pepy.tech/badge/free-proxy)](https://pepy.tech/project/free-proxy)
 
-[![CI/CD](https://github.com/jundymek/free-proxy/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/jundymek/free-proxy/actions/workflows/ci-cd.yml)
-[![Codecov](https://codecov.io/gh/jundymek/free-proxy/branch/master/graph/badge.svg)](https://codecov.io/gh/jundymek/free-proxy)
+[![CI/CD](https://github.com/motttik/free-proxy/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/motttik/free-proxy/actions/workflows/ci-cd.yml)
 
 ---
 
@@ -36,7 +35,7 @@ fp get -n 10 -f json
 
 ### ✨ Новое в версии 2.0
 
-- **50+ источников** прокси (GitHub, API, HTML сайты)
+- **53 источника** прокси (GitHub, API, HTML сайты)
 - **SOCKS4/SOCKS5** поддержка
 - **Асинхронный режим** (проверка 100 прокси за ~10 сек)
 - **CLI интерфейс** с автодополнением
@@ -81,7 +80,7 @@ pip install free-proxy[dev]
 
 ```bash
 # Pull
-docker pull ghcr.io/jundymek/free-proxy:latest
+docker pull ghcr.io/motttik/free-proxy:latest
 
 # Run
 docker run --rm free-proxy get -n 5
@@ -134,7 +133,7 @@ async def main():
     # Быстрая проверка (100 прокси за ~10 сек)
     proxy = await AsyncFreeProxy().get()
     print(proxy)
-    
+
     # 20 прокси с прогресс-баром
     proxies = await AsyncFreeProxy().get(count=20, show_progress=True)
     print(proxies)
@@ -215,7 +214,7 @@ sources = FreeProxy().get_all_sources()  # list[dict]
 
 ---
 
-## 🌍 Источники (50+)
+## 🌍 Источники (53)
 
 ### GitHub Raw (17 источников)
 
@@ -284,7 +283,7 @@ docker-compose run shell
 
 | Функция | v1.x | v2.0 |
 |---------|------|------|
-| Источников | 4 | **50+** |
+| Источников | 4 | **53** |
 | Протоколы | HTTP/HTTPS | **HTTP/HTTPS/SOCKS4/SOCKS5** |
 | Проверка | ~50 сек (100 шт) | **~10 сек** (async) |
 | CLI | ❌ | ✅ typer |
@@ -299,7 +298,7 @@ docker-compose run shell
 
 ```bash
 # Fork и clone
-git clone https://github.com/YOUR_USERNAME/free-proxy.git
+git clone https://github.com/motttik/free-proxy.git
 cd free-proxy
 
 # Виртуальное окружение
@@ -329,7 +328,7 @@ git push origin feature/my-feature
 
 **Полная переработка проекта**
 
-- ✨ 50+ источников прокси
+- ✨ 53 источника прокси
 - ✨ SOCKS4/SOCKS5 поддержка
 - ✨ AsyncFreeProxy класс
 - ✨ CLI интерфейс (typer)
@@ -348,10 +347,10 @@ git push origin feature/my-feature
 
 ## ⚠️ Disclaimer
 
-Авторы не несут ответственности за последствия использования данного ПО. 
+Автор не несёт ответственности за последствия использования данного ПО.
 Пользователи несут полную ответственность за свои действия.
 
-Бесплатные прокси могут быть нестабильными и небезопасными. 
+Бесплатные прокси могут быть нестабильными и небезопасными.
 Не используйте для конфиденциальных данных.
 
 ---
@@ -361,8 +360,7 @@ git push origin feature/my-feature
 [MIT License](LICENSE)
 
 ```
-Copyright (c) 2019-2026 jundymek
-Copyright (c) 2026 Qwen Code AI (v2.0 rewrite)
+Copyright (c) 2019-2026 motttik
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -371,19 +369,18 @@ in the Software without restriction...
 
 ---
 
-## 👥 Авторы
+## 👥 Автор
 
-- **Original:** jundymek <jundymek@gmail.com>
-- **v2.0 Rewrite:** Qwen Code AI
+**motttik**
 
 ---
 
 ## 📞 Контакты
 
-- **GitHub:** https://github.com/jundymek/free-proxy
+- **GitHub:** https://github.com/motttik/free-proxy
 - **PyPI:** https://pypi.org/project/free-proxy/
-- **Issues:** https://github.com/jundymek/free-proxy/issues
+- **Issues:** https://github.com/motttik/free-proxy/issues
 
 ---
 
-**Made with ❤️ for the community**
+**Made with ❤️ by motttik**
