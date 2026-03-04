@@ -62,6 +62,8 @@ from fp.database import ProxyDatabase
 from fp.manager import ProxyManager
 from fp.scheduler import ProxyScheduler
 from fp.source_manager import SourceManager
+from fp.source_health import SourceHealthManager
+from fp.pipeline import ProxyPipeline, PipelineReport, NormalizedProxy
 from fp.errors import (
     FreeProxyException,
     NoWorkingProxyError,
@@ -100,6 +102,10 @@ __all__ = [
     "ValidationStage",
     "ProxyScheduler",
     "SourceManager",
+    "SourceHealthManager",
+    "ProxyPipeline",
+    "PipelineReport",
+    "NormalizedProxy",
     
     # Исключения
     "FreeProxyException",

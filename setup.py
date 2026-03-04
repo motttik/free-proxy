@@ -56,6 +56,8 @@ setuptools.setup(
         "httpx>=0.25.0",
         "typer>=0.9.0",
         "rich>=13.0.0",
+        "aiosqlite>=0.22.0",
+        "apscheduler>=3.11.0",
     ],
     extras_require={
         "dev": [
