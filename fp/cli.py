@@ -437,7 +437,7 @@ def pool_status():
             table.add_row("HOT", str(stats["hot_count"]), str(hot_target), hot_status)
             
             # WARM
-            table.add_row("WARM", str(stats["warm_number"]), "-", "✓")
+            table.add_row("WARM", str(stats["warm_count"]), "-", "✓")
             
             # QUARANTINE
             table.add_row("QUARANTINE", str(stats["quarantine_count"]), "-", "✓")
@@ -641,8 +641,8 @@ def run_pipeline(
             table.add_row("Deduped", str(report.deduped))
             table.add_row("Validated Fast", str(report.validated_fast))
             table.add_row("Validated Targeted", str(report.validated_targeted))
-            table.add_row("HOT", f"[green]{report.hot_number}[/green]")
-            table.add_row("WARM", f"[yellow]{report.warm_number}[/yellow]")
+            table.add_row("HOT", f"[green]{report.hot_count}[/green]")
+            table.add_row("WARM", f"[yellow]{report.warm_count}[/yellow]")
             table.add_row("Quarantine", f"[red]{report.quarantine_count}[/red]")
             
             console.print(table)

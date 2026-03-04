@@ -50,7 +50,7 @@ class PipelineReport:
     validated_fast: int = 0
     validated_targeted: int = 0
     hot_count: int = 0
-    warm_number: int = 0
+    warm_count: int = 0
     quarantine_count: int = 0
     failed: int = 0
     avg_latency: float = 0.0
@@ -294,9 +294,9 @@ class ProxyPipeline:
             total_latency += result.metrics.latency_ms
             
             if pool == ProxyPool.HOT:
-                report.hot_number += 1
+                report.hot_count += 1
             elif pool == ProxyPool.WARM:
-                report.warm_number += 1
+                report.warm_count += 1
             else:
                 report.quarantine_count += 1
             
@@ -324,8 +324,8 @@ class ProxyPipeline:
             "deduped": report.deduped,
             "validated_fast": report.validated_fast,
             "validated_targeted": report.validated_targeted,
-            "hot_count": report.hot_number,
-            "warm_number": report.warm_number,
+            "hot_count": report.hot_count,
+            "warm_count": report.warm_count,
             "quarantine_count": report.quarantine_count,
             "failed": report.failed,
             "avg_latency": round(report.avg_latency, 2),
@@ -357,8 +357,8 @@ async def main():
         print(f"Deduped: {report.deduped}")
         print(f"Validated Fast: {report.validated_fast}")
         print(f"Validated Targeted: {report.validated_targeted}")
-        print(f"HOT: {report.hot_number}")
-        print(f"WARM: {report.warm_number}")
+        print(f"HOT: {report.hot_count}")
+        print(f"WARM: {report.warm_count}")
         print(f"Quarantine: {report.quarantine_count}")
         print(f"Failed: {report.failed}")
         print(f"Avg Score: {report.avg_score:.1f}")

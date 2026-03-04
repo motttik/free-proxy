@@ -143,14 +143,15 @@ class SourceHealthManager:
                 """
                 INSERT OR REPLACE INTO sources 
                 (url, name, type, protocols, fail_streak, pass_rate, 
-                 disabled_until, total_fetches, successful_fetches)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 disabled_until, total_fetches, successful_fetches, avg_latency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     url, health.name, "unknown", "",
                     health.fail_streak, health.pass_rate,
                     health.disabled_until if health.disabled_until > 0 else None,
                     health.total_fetches, health.successful_fetches,
+                    health.avg_latency,
                 ),
             )
         

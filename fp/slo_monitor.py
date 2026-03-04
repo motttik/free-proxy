@@ -25,7 +25,7 @@ class SLOMetrics:
     """SLO метрики"""
     timestamp: float = field(default_factory=time.time)
     hot_count: int = 0
-    warm_number: int = 0
+    warm_count: int = 0
     quarantine_count: int = 0
     total_proxies: int = 0
     avg_score: float = 0.0
@@ -37,7 +37,7 @@ class SLOMetrics:
         """Доля HOT прокси"""
         if self.total_proxies == 0:
             return 0.0
-        return self.hot_number / self.total_proxies
+        return self.hot_count / self.total_proxies
     
     @property
     def success_rate_24h(self) -> float:
@@ -149,8 +149,8 @@ class SLOMonitor:
         # Получаем метрики
         stats = await self._db.get_stats()
         metrics = SLOMetrics(
-            hot_number=stats.get("hot_count", 0),
-            warm_number=stats.get("warm_number", 0),
+            hot_count=stats.get("hot_count", 0),
+            warm_count=stats.get("warm_count", 0),
             quarantine_count=stats.get("quarantine_count", 0),
             total_proxies=stats.get("total_proxies", 0),
             avg_score=stats.get("avg_score", 0),
@@ -161,13 +161,13 @@ class SLOMonitor:
         new_alerts = []
         
         # Проверка SLO
-        if metrics.hot_number < self.SLO_HOT_CRITICAL:
+        if metrics.hot_count < self.SLO_HOT_CRITICAL:
             # Critical: <10 HOT
             new_alerts.extend(await self._handle_critical(metrics))
-        elif metrics.hot_number < self.SLO_HOT_WARNING:
+        elif metrics.hot_count < self.SLO_HOT_WARNING:
             # Warning: <15 HOT
             new_alerts.extend(await self._handle_warning(metrics))
-        elif metrics.hot_number < self.SLO_HOT_MINIMUM:
+        elif metrics.hot_count < self.SLO_HOT_MINIMUM:
             # Info: <20 HOT
             new_alerts.extend(await self._handle_info(metrics))
         else:
@@ -197,9 +197,9 @@ class SLOMonitor:
             alert = Alert(
                 id=alert_id,
                 severity="critical",
-                message=f"HOT pool критически мал: {metrics.hot_number} прокси (цель: {self.SLO_HOT_TARGET})",
+                message=f"HOT pool критически мал: {metrics.hot_count} прокси (цель: {self.SLO_HOT_TARGET})",
                 metadata={
-                    "hot_number": metrics.hot_number,
+                    "hot_count": metrics.hot_count,
                     "target": self.SLO_HOT_TARGET,
                     "duration_minutes": duration_minutes,
                 },
@@ -214,7 +214,7 @@ class SLOMonitor:
                 severity="critical",
                 message=f"EMERGENCY: HOT pool <10 уже {duration_minutes:.0f} минут! Требуется вмешательство.",
                 metadata={
-                    "hot_number": metrics.hot_number,
+                    "hot_count": metrics.hot_count,
                     "duration_minutes": duration_minutes,
                     "action_required": "rebuild_hot_pool",
                 },
@@ -242,9 +242,9 @@ class SLOMonitor:
             alert = Alert(
                 id=alert_id,
                 severity="warning",
-                message=f"HOT pool мал: {metrics.hot_number} прокси (цель: {self.SLO_HOT_TARGET})",
+                message=f"HOT pool мал: {metrics.hot_count} прокси (цель: {self.SLO_HOT_TARGET})",
                 metadata={
-                    "hot_number": metrics.hot_number,
+                    "hot_count": metrics.hot_count,
                     "target": self.SLO_HOT_TARGET,
                     "duration_minutes": duration_minutes,
                 },
@@ -262,8 +262,8 @@ class SLOMonitor:
             alert = Alert(
                 id=alert_id,
                 severity="info",
-                message=f"HOT pool ниже цели: {metrics.hot_number} прокси (цель: {self.SLO_HOT_TARGET})",
-                metadata={"hot_number": metrics.hot_number},
+                message=f"HOT pool ниже цели: {metrics.hot_count} прокси (цель: {self.SLO_HOT_TARGET})",
+                metadata={"hot_count": metrics.hot_count},
             )
             self._alerts[alert_id] = alert
             return [alert]
@@ -272,7 +272,7 @@ class SLOMonitor:
     
     async def _resolve_alerts_if_slo_ok(self, metrics: SLOMetrics) -> None:
         """Resolvим алерты если SLO ок"""
-        if metrics.hot_number >= self.SLO_HOT_MINIMUM:
+        if metrics.hot_count >= self.SLO_HOT_MINIMUM:
             self._low_hot_start = 0
             
             # Resolvим все active алерты
@@ -311,7 +311,7 @@ class SLOMonitor:
         metrics = [
             f'free_proxy_total_proxies {stats.get("total_proxies", 0)}',
             f'free_proxy_hot_proxies {stats.get("hot_count", 0)}',
-            f'free_proxy_warm_proxies {stats.get("warm_number", 0)}',
+            f'free_proxy_warm_proxies {stats.get("warm_count", 0)}',
             f'free_proxy_quarantine_proxies {stats.get("quarantine_count", 0)}',
             f'free_proxy_avg_score {stats.get("avg_score", 0):.2f}',
             f'free_proxy_checks_24h_total {stats.get("checks_24h", 0)}',
@@ -335,8 +335,8 @@ async def main():
         print("=== SLO Check ===")
         metrics, alerts = await monitor.check_slo()
         
-        print(f"HOT: {metrics.hot_number} (цель: {SLOMonitor.SLO_HOT_TARGET})")
-        print(f"WARM: {metrics.warm_number}")
+        print(f"HOT: {metrics.hot_count} (цель: {SLOMonitor.SLO_HOT_TARGET})")
+        print(f"WARM: {metrics.warm_count}")
         print(f"Quarantine: {metrics.quarantine_count}")
         print(f"Avg Score: {metrics.avg_score:.1f}")
         
