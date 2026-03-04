@@ -52,35 +52,19 @@ class ProxyDatabase:
     async def _run_migrations(self) -> None:
         """Простая миграция БД"""
         assert self._conn is not None
-
-        # Миграция 1: avg_latency в sources
+        
+        # Проверяем наличие колонки avg_latency в sources
         cursor = await self._conn.execute("PRAGMA table_info(sources)")
         columns = [row[1] for row in await cursor.fetchall()]
-
+        
         if "avg_latency" not in columns:
             await self._conn.execute("ALTER TABLE sources ADD COLUMN avg_latency REAL DEFAULT 0")
-            await self._conn.commit()
-        
-        # Миграция 2: health contract поля в proxies
-        cursor = await self._conn.execute("PRAGMA table_info(proxies)")
-        columns = [row[1] for row in await cursor.fetchall()]
-        
-        if "last_live_check" not in columns:
-            await self._conn.execute("ALTER TABLE proxies ADD COLUMN last_live_check REAL")
-            await self._conn.commit()
-        
-        if "last_check" not in columns:
-            await self._conn.execute("ALTER TABLE proxies ADD COLUMN last_check REAL")
-            await self._conn.commit()
-        
-        if "fail_streak" not in columns:
-            await self._conn.execute("ALTER TABLE proxies ADD COLUMN fail_streak INTEGER DEFAULT 0")
             await self._conn.commit()
 
     async def _create_tables(self) -> None:
         """Создать таблицы"""
         assert self._conn is not None
-
+        
         # Таблица прокси
         await self._conn.execute("""
             CREATE TABLE IF NOT EXISTS proxies (
@@ -93,9 +77,6 @@ class ProxyDatabase:
                 pool TEXT DEFAULT 'warm',
                 created_at REAL DEFAULT (strftime('%s', 'now')),
                 updated_at REAL DEFAULT (strftime('%s', 'now')),
-                last_live_check REAL,
-                last_check REAL,
-                fail_streak INTEGER DEFAULT 0,
                 UNIQUE(ip, port, protocol)
             )
         """)
@@ -104,7 +85,6 @@ class ProxyDatabase:
         await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_ip ON proxies(ip)")
         await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_pool ON proxies(pool)")
         await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_country ON proxies(country)")
-        await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_last_live_check ON proxies(last_live_check DESC)")
         
         # Таблица метрик
         await self._conn.execute("""
@@ -270,80 +250,12 @@ class ProxyDatabase:
     async def update_pool(self, proxy_id: int, pool: ProxyPool) -> None:
         """Обновить пул прокси"""
         assert self._conn is not None
-
+        
         await self._conn.execute(
             "UPDATE proxies SET pool = ?, updated_at = strftime('%s', 'now') WHERE id = ?",
             (pool.value, proxy_id),
         )
         await self._conn.commit()
-    
-    async def update_health_on_success(self, proxy_id: int) -> None:
-        """Обновить health после успешной проверки"""
-        assert self._conn is not None
-        
-        now = time.time()
-        await self._conn.execute(
-            """
-            UPDATE proxies SET
-                last_live_check = ?,
-                last_check = ?,
-                fail_streak = 0
-            WHERE id = ?
-            """,
-            (now, now, proxy_id),
-        )
-        await self._conn.commit()
-    
-    async def update_health_on_fail(self, proxy_id: int) -> None:
-        """Обновить health после неудачной проверки"""
-        assert self._conn is not None
-        
-        now = time.time()
-        await self._conn.execute(
-            """
-            UPDATE proxies SET
-                last_check = ?,
-                fail_streak = fail_streak + 1
-            WHERE id = ?
-            """,
-            (now, proxy_id),
-        )
-        await self._conn.commit()
-    
-    async def is_proxy_fresh(
-        self,
-        proxy_id: int,
-        pool: str,
-        hot_ttl_minutes: int = 15,
-        warm_ttl_minutes: int = 45,
-    ) -> bool:
-        """
-        Проверить, не устарела ли прокси
-        
-        Args:
-            proxy_id: ID прокси
-            pool: Текущий пул (hot/warm)
-            hot_ttl_minutes: TTL для HOT
-            warm_ttl_minutes: TTL для WARM
-        
-        Returns:
-            True если прокси свежая
-        """
-        assert self._conn is not None
-        
-        cursor = await self._conn.execute(
-            "SELECT last_live_check FROM proxies WHERE id = ?",
-            (proxy_id,),
-        )
-        row = await cursor.fetchone()
-        
-        if not row or not row[0]:
-            return False
-        
-        ttl = hot_ttl_minutes if pool == "hot" else warm_ttl_minutes
-        age_minutes = (time.time() - row[0]) / 60
-        
-        return age_minutes < ttl
     
     async def add_check_history(
         self,
@@ -523,3 +435,84 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+# ============================================================================
+# V3.2 HEALTH CONTRACT MIGRATIONS
+# ============================================================================
+
+# Сохраняем оригинальные методы и добавляем миграции
+
+_original_create_tables = None
+
+async def _column_exists(self, table: str, column: str) -> bool:
+    """Проверить, существует ли колонка в таблице"""
+    assert self._conn is not None
+    cursor = await self._conn.execute(f"PRAGMA table_info({table})")
+    columns = [row[1] for row in await cursor.fetchall()]
+    return column in columns
+
+async def _table_exists(self, table: str) -> bool:
+    """Проверить, существует ли таблица"""
+    assert self._conn is not None
+    cursor = await self._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,)
+    )
+    return await cursor.fetchone() is not None
+
+async def _run_migrations(self) -> None:
+    """Простая миграция БД"""
+    assert self._conn is not None
+    
+    # Миграция 1: avg_latency в sources (только если таблица существует)
+    if await self._table_exists("sources"):
+        cursor = await self._conn.execute("PRAGMA table_info(sources)")
+        columns = [row[1] for row in await cursor.fetchall()]
+        
+        if "avg_latency" not in columns:
+            await self._conn.execute("ALTER TABLE sources ADD COLUMN avg_latency REAL DEFAULT 0")
+            await self._conn.commit()
+    
+    # Миграция 2: health contract поля в proxies
+    cursor = await self._conn.execute("PRAGMA table_info(proxies)")
+    columns = [row[1] for row in await cursor.fetchall()]
+    
+    if "last_live_check" not in columns:
+        await self._conn.execute("ALTER TABLE proxies ADD COLUMN last_live_check REAL")
+        await self._conn.commit()
+    
+    if "last_check" not in columns:
+        await self._conn.execute("ALTER TABLE proxies ADD COLUMN last_check REAL")
+        await self._conn.commit()
+    
+    if "fail_streak" not in columns:
+        await self._conn.execute("ALTER TABLE proxies ADD COLUMN fail_streak INTEGER DEFAULT 0")
+        await self._conn.commit()
+
+# Добавляем методы в класс
+ProxyDatabase._column_exists = _column_exists
+ProxyDatabase._table_exists = _table_exists
+ProxyDatabase._run_migrations = _run_migrations
+
+# Переопределяем __aenter__ для правильного порядка
+async def __aenter__(self) -> "ProxyDatabase":
+    self._conn = await aiosqlite.connect(
+        str(self.db_path),
+        timeout=30.0,
+    )
+    # WAL режим
+    await self._conn.execute("PRAGMA journal_mode=WAL")
+    await self._conn.execute("PRAGMA synchronous=NORMAL")
+    await self._conn.execute("PRAGMA cache_size=10000")
+    await self._conn.execute("PRAGMA temp_store=MEMORY")
+    # 1. Базовые таблицы
+    await self._create_tables()
+    # 2. Миграции
+    await self._run_migrations()
+    # 3. Индексы (только если колонки существуют)
+    if await self._column_exists("proxies", "last_live_check"):
+        await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_last_live_check ON proxies(last_live_check DESC)")
+    return self
+
+ProxyDatabase.__aenter__ = __aenter__
