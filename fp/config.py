@@ -188,50 +188,9 @@ GITHUB_SOURCES: list[ProxySource] = [
         "timeout": 10,
         "max_retries": 3,
     },
-    
-    # miyukii-chan/ProxyList
-    {
-        "name": "miyukii HTTP",
-        "url": "https://raw.githubusercontent.com/miyukii-chan/ProxyList/main/http.txt",
-        "type": SourceType.GITHUB_RAW,
-        "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS],
-        "country": None,
-        "update_frequency": 60,
-        "timeout": 10,
-        "max_retries": 3,
-    },
-    {
-        "name": "miyukii SOCKS4",
-        "url": "https://raw.githubusercontent.com/miyukii-chan/ProxyList/main/socks4.txt",
-        "type": SourceType.GITHUB_RAW,
-        "protocols": [SourceProtocol.SOCKS4],
-        "country": None,
-        "update_frequency": 60,
-        "timeout": 10,
-        "max_retries": 3,
-    },
-    {
-        "name": "miyukii SOCKS5",
-        "url": "https://raw.githubusercontent.com/miyukii-chan/ProxyList/main/socks5.txt",
-        "type": SourceType.GITHUB_RAW,
-        "protocols": [SourceProtocol.SOCKS5],
-        "country": None,
-        "update_frequency": 60,
-        "timeout": 10,
-        "max_retries": 3,
-    },
-    
-    # roosterkid/openproxylist
-    {
-        "name": "roosterkid HTTPS",
-        "url": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt",
-        "type": SourceType.GITHUB_RAW,
-        "protocols": [SourceProtocol.HTTPS],
-        "country": None,
-        "update_frequency": 60,
-        "timeout": 10,
-        "max_retries": 3,
-    },
+
+    # miyukii-chan/ProxyList - REMOVED (404 as of 2026-03-08)
+    # roosterkid/openproxylist - REMOVED (404 as of 2026-03-08)
 ]
 
 
