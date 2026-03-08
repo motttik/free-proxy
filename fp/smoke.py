@@ -131,18 +131,18 @@ async def smoke_test(
 async def _get_fresh_proxy(db, use_quarantine: bool = False) -> dict | None:
     """
     Получить свежую прокси с проверкой TTL и fail_streak
-    
+
     Критерии:
-    - HOT: last_live_check за последние 30 мин
-    - WARM: last_live_check за последние 60 мин
+    - HOT: last_live_check за последние 15 мин
+    - WARM: last_live_check за последние 45 мин
     - fail_streak < 3
     """
     import time
     import random
-    
+
     now = time.time()
-    hot_ttl_seconds = 30 * 60  # 30 минут
-    warm_ttl_seconds = 60 * 60  # 60 минут
+    hot_ttl_seconds = 15 * 60  # 15 минут
+    warm_ttl_seconds = 45 * 60  # 45 минут
     
     # Сначала HOT (свежие live-check)
     cursor = await db._conn.execute("""
@@ -283,14 +283,14 @@ def print_report(results: dict) -> None:
         if results["fail_reasons"].get("no_proxy_available", 0) > 0:
             print("  ⚠️  Not enough proxies in HOT/WARM pools")
             print("     → Recommendation: run 'python quick_collect.py' to refresh")
-            print("     → Or use fallback mode: smoke test will use top-score proxies")
+            print("     → Or rebuild pools: python rebuild_pools.py")
 
         # Applied filters info
         print("\n=== APPLIED FILTERS ===")
-        print("  - HOT pool: last_live_check < 30 min (TTL: 30 min)")
-        print("  - WARM pool: last_live_check < 60 min (TTL: 60 min)")
+        print("  - HOT pool: last_live_check < 15 min (TTL: 15 min)")
+        print("  - WARM pool: last_live_check < 45 min (TTL: 45 min)")
         print("  - fail_streak < 3")
-        print("  - Fallback: use top-score if no fresh proxies")
+        print("  - Fallback: use top-score if no fresh proxies (degraded mode)")
     
     print("\n=== RESULT ===")
     if results["ratio"] >= 0.3:

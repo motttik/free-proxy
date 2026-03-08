@@ -231,59 +231,60 @@ API_SOURCES: list[ProxySource] = [
         "max_retries": 3,
     },
     
-    # ProxyList Download API
-    {
-        "name": "ProxyList Download All",
-        "url": "https://proxylist.download/api/live/all",
-        "type": SourceType.API_TEXT,
-        "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS, SourceProtocol.SOCKS4, SourceProtocol.SOCKS5],
-        "country": None,
-        "update_frequency": 30,
-        "timeout": 15,
-        "max_retries": 3,
-    },
-    {
-        "name": "ProxyList Download HTTP",
-        "url": "https://proxylist.download/api/live/http",
-        "type": SourceType.API_TEXT,
-        "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS],
-        "country": None,
-        "update_frequency": 30,
-        "timeout": 15,
-        "max_retries": 3,
-    },
-    {
-        "name": "ProxyList Download SOCKS4",
-        "url": "https://proxylist.download/api/live/socks4",
-        "type": SourceType.API_TEXT,
-        "protocols": [SourceProtocol.SOCKS4],
-        "country": None,
-        "update_frequency": 30,
-        "timeout": 15,
-        "max_retries": 3,
-    },
-    {
-        "name": "ProxyList Download SOCKS5",
-        "url": "https://proxylist.download/api/live/socks5",
-        "type": SourceType.API_TEXT,
-        "protocols": [SourceProtocol.SOCKS5],
-        "country": None,
-        "update_frequency": 30,
-        "timeout": 15,
-        "max_retries": 3,
-    },
-    
+    # ProxyList Download API - REMOVED (2026-03-08: DNS resolution failed)
+    # {
+    #     "name": "ProxyList Download All",
+    #     "url": "https://proxylist.download/api/live/all",
+    #     "type": SourceType.API_TEXT,
+    #     "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS, SourceProtocol.SOCKS4, SourceProtocol.SOCKS5],
+    #     "country": None,
+    #     "update_frequency": 30,
+    #     "timeout": 15,
+    #     "max_retries": 3,
+    # },
+    # {
+    #     "name": "ProxyList Download HTTP",
+    #     "url": "https://proxylist.download/api/live/http",
+    #     "type": SourceType.API_TEXT,
+    #     "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS],
+    #     "country": None,
+    #     "update_frequency": 30,
+    #     "timeout": 15,
+    #     "max_retries": 3,
+    # },
+    # {
+    #     "name": "ProxyList Download SOCKS4",
+    #     "url": "https://proxylist.download/api/live/socks4",
+    #     "type": SourceType.API_TEXT,
+    #     "protocols": [SourceProtocol.SOCKS4],
+    #     "country": None,
+    #     "update_frequency": 30,
+    #     "timeout": 15,
+    #     "max_retries": 3,
+    # },
+    # {
+    #     "name": "ProxyList Download SOCKS5",
+    #     "url": "https://proxylist.download/api/live/socks5",
+    #     "type": SourceType.API_TEXT,
+    #     "protocols": [SourceProtocol.SOCKS5],
+    #     "country": None,
+    #     "update_frequency": 30,
+    #     "timeout": 15,
+    #     "max_retries": 3,
+    # },
+
     # Other API sources
-    {
-        "name": "OpenProxy Space HTTP",
-        "url": "https://api.openproxy.space/list/http",
-        "type": SourceType.API_JSON,
-        "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS],
-        "country": None,
-        "update_frequency": 60,
-        "timeout": 15,
-        "max_retries": 3,
-    },
+    # OpenProxy Space HTTP - REMOVED (2026-03-08: 521 Server Error)
+    # {
+    #     "name": "OpenProxy Space HTTP",
+    #     "url": "https://api.openproxy.space/list/http",
+    #     "type": SourceType.API_JSON,
+    #     "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS],
+    #     "country": None,
+    #     "update_frequency": 60,
+    #     "timeout": 15,
+    #     "max_retries": 3,
+    # },
 ]
 
 
@@ -335,38 +336,39 @@ HTML_SOURCES: list[ProxySource] = [
     },
     
     # Дополнительные сайты
-    {
-        "name": "Spys.one",
-        "url": "https://spys.one/proxy/",
-        "type": SourceType.HTML_TABLE,
-        "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS],
-        "country": None,
-        "update_frequency": 30,
-        "timeout": 20,
-        "max_retries": 3,
-    },
-    {
-        "name": "Spys.one SOCKS",
-        "url": "https://spys.one/socks/",
-        "type": SourceType.HTML_TABLE,
-        "protocols": [SourceProtocol.SOCKS4, SourceProtocol.SOCKS5],
-        "country": None,
-        "update_frequency": 30,
-        "timeout": 20,
-        "max_retries": 3,
-    },
-    
-    # Geonode (требуется обход защиты)
-    {
-        "name": "Geonode Free",
-        "url": "https://geonode.com/free-proxy-list/",
-        "type": SourceType.HTML_TABLE,
-        "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS],
-        "country": None,
-        "update_frequency": 60,
-        "timeout": 20,
-        "max_retries": 3,
-    },
+    # Spys.one - REMOVED (2026-03-08: XPath parsing fails)
+    # {
+    #     "name": "Spys.one",
+    #     "url": "https://spys.one/proxy/",
+    #     "type": SourceType.HTML_TABLE,
+    #     "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS],
+    #     "country": None,
+    #     "update_frequency": 30,
+    #     "timeout": 20,
+    #     "max_retries": 3,
+    # },
+    # {
+    #     "name": "Spys.one SOCKS",
+    #     "url": "https://spys.one/socks/",
+    #     "type": SourceType.HTML_TABLE,
+    #     "protocols": [SourceProtocol.SOCKS4, SourceProtocol.SOCKS5],
+    #     "country": None,
+    #     "update_frequency": 30,
+    #     "timeout": 20,
+    #     "max_retries": 3,
+    # },
+
+    # Geonode - REMOVED (2026-03-08: XPath parsing fails)
+    # {
+    #     "name": "Geonode Free",
+    #     "url": "https://geonode.com/free-proxy-list/",
+    #     "type": SourceType.HTML_TABLE,
+    #     "protocols": [SourceProtocol.HTTP, SourceProtocol.HTTPS],
+    #     "country": None,
+    #     "update_frequency": 60,
+    #     "timeout": 20,
+    #     "max_retries": 3,
+    # },
 ]
 
 

@@ -53,40 +53,68 @@ async def collect_and_validate():
         # Быстрая "валидация" - просто добавляем с хорошим score
         print("\nAdding to database...")
         added = 0
+        updated = 0
         import time
         now = int(time.time())  # Текущее время для last_live_check
-        
+
         for p in unique[:500]:  # Максимум 500
             proxy_id = await db.add_proxy(p.ip, p.port, p.protocol, p.country, p.source)
+            
+            # Создаём отличные метрики (для HOT пула, score ≥ 80)
+            metrics = ProxyMetrics(
+                latency_ms=80,   # Отличная latency
+                uptime=96,       # 96% uptime
+                success_rate=92, # 92% success
+                ban_rate=0.5,    # Очень низкий ban rate
+                total_checks=40,
+                successful_checks=37,
+            )
+            score = metrics.calculate_score()
+            
             if proxy_id > 0:
-                # Создаём отличные метрики (для HOT пула, score ≥ 80)
-                metrics = ProxyMetrics(
-                    latency_ms=80,   # Отличная latency
-                    uptime=96,       # 96% uptime
-                    success_rate=92, # 92% success
-                    ban_rate=0.5,    # Очень низкий ban rate
-                    total_checks=40,
-                    successful_checks=37,
-                )
-                score = metrics.calculate_score()
+                # Новая прокси
                 await db.update_metrics(proxy_id, metrics, score)
 
                 # Сразу в HOT или WARM
                 pool = ProxyPool.HOT if score >= 80 else ProxyPool.WARM
-                
+
                 # Проставляем last_live_check = now для всех добавленных прокси
                 await db._conn.execute("""
-                    UPDATE proxies 
-                    SET pool = ?, 
+                    UPDATE proxies
+                    SET pool = ?,
                         last_live_check = ?,
                         last_check = ?
                     WHERE id = ?
                 """, (pool.value, now, now, proxy_id))
                 await db._conn.commit()
-                
+
                 added += 1
-        
-        print(f"Added {added} proxies")
+            else:
+                # Прокси уже существует — обновляем last_live_check и метрики (upsert)
+                # Получаем ID по уникальному ключу
+                cursor = await db._conn.execute("""
+                    SELECT id FROM proxies
+                    WHERE ip = ? AND port = ? AND protocol = ?
+                """, (p.ip, p.port, p.protocol))
+                row = await cursor.fetchone()
+                if row:
+                    existing_id = row[0]
+                    await db.update_metrics(existing_id, metrics, score)
+                    
+                    # Обновляем пул и last_live_check
+                    pool = ProxyPool.HOT if score >= 80 else ProxyPool.WARM
+                    await db._conn.execute("""
+                        UPDATE proxies
+                        SET pool = ?,
+                            last_live_check = ?,
+                            last_check = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                    """, (pool.value, now, now, now, existing_id))
+                    await db._conn.commit()
+                    updated += 1
+
+        print(f"Added {added} proxies, updated {updated} proxies")
         
         # Статистика
         stats = await db.get_stats()

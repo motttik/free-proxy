@@ -317,8 +317,11 @@ pytest -v
 # Smoke тест (E2E проверка реальных прокси)
 python scripts/smoke_runner.py --n 3 --timeout 5
 
-# Smoke тест через CLI
-fp op smoke -n 3 --timeout 5
+# Быстрая коллекция прокси для тестов
+python quick_collect.py
+
+# Пересборка пулов из карантина
+python rebuild_pools.py
 
 # Commit
 git commit -m "feat: add my feature"
