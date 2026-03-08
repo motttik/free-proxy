@@ -19,11 +19,11 @@ import aiohttp
 # ============================================================================
 
 PREFLIGHT_CONFIG = {
-    "enabled": True,
-    "candidate_pool_size": 30,  # Сколько кандидатов брать для preflight
-    "timeout": 3.0,  # Короткий timeout для preflight
+    "enabled": False,  # По умолчанию выключен (слишком медленный для бесплатных прокси)
+    "candidate_pool_size": 20,  # Сколько кандидатов брать для preflight
+    "timeout": 2.0,  # Короткий timeout для preflight
     "test_url": "http://httpbin.org/ip",  # Легкий URL для preflight
-    "max_concurrent": 10,  # Ограничить параллелизм для скорости
+    "max_concurrent": 15,  # Ограничить параллелизм для скорости
 }
 
 ADAPTIVE_TIMEOUT_CONFIG = {
