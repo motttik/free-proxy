@@ -4,6 +4,8 @@ Smoke Test Tests
 Тесты для проверки smoke.py:
 1. Регрессия no_proxy_available при HOT/WARM > 0 и пустом last_live_check
 2. Актуальность help-рекомендаций в smoke report (без fp op)
+3. Preflight validation фильтрует мёртвые прокси
+4. Отчёт содержит preflight counters и mode
 """
 
 import asyncio
@@ -13,7 +15,7 @@ from pathlib import Path
 
 from fp.database import ProxyDatabase
 from fp.validator import ProxyMetrics, ProxyPool
-from fp.smoke import _get_fresh_proxy, smoke_test, print_report
+from fp.smoke import _get_fresh_proxy, smoke_test, print_report, run_preflight_validation
 
 
 @pytest.fixture
@@ -134,7 +136,7 @@ async def test_smoke_test_no_no_proxy_available(db_without_last_live_check):
     Тест: smoke_test не должен получать no_proxy_available
     при наличии HOT/WARM прокси даже без last_live_check.
     """
-    results = await smoke_test(n=5, timeout=1.0)
+    results = await smoke_test(n=5, timeout=1.0, use_preflight=False)
     
     # Проверяем что no_proxy_available не был получен
     no_proxy_count = results["fail_reasons"].get("no_proxy_available", 0)
@@ -158,6 +160,7 @@ def test_print_report_no_fp_op_recommendation(capsys):
         "fail_reasons": {"no_proxy_available": 5},
         "latencies": [],
         "details": [],
+        "mode": "degraded",
     }
     
     print_report(results)
@@ -190,6 +193,7 @@ def test_print_report_ttl_values(capsys):
         "fail_reasons": {},
         "latencies": [],
         "details": [],
+        "mode": "fresh",
     }
     
     print_report(results)
@@ -228,3 +232,113 @@ async def test_empty_database():
     async with ProxyDatabase(":memory:") as db:
         proxy = await _get_fresh_proxy(db)
         assert proxy is None, "Пустая БД должна возвращать None"
+
+
+# ============================================================================
+# PREFLIGHT VALIDATION TESTS
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_preflight_filters_dead_proxies(db_with_proxies):
+    """
+    Тест: preflight validation фильтрует мёртвые прокси.
+    
+    Preflight должен отсечь прокси которые не отвечают.
+    """
+    passed, stats = await run_preflight_validation(
+        db_with_proxies,
+        candidate_count=10,
+        timeout=1.0,
+    )
+    
+    # Проверяем что статистика собрана
+    assert "candidates_total" in stats
+    assert "candidates_checked" in stats
+    assert "candidates_passed" in stats
+    assert "candidates_failed" in stats
+    
+    # Проверяем что candidates_total > 0 (есть кандидаты в БД)
+    assert stats["candidates_total"] > 0
+    
+    # Проверяем что passed + failed = checked
+    assert stats["candidates_passed"] + stats["candidates_failed"] == stats["candidates_checked"]
+
+
+@pytest.mark.asyncio
+async def test_preflight_with_empty_database():
+    """Тест: preflight с пустой БД возвращает пустой список"""
+    async with ProxyDatabase(":memory:") as db:
+        passed, stats = await run_preflight_validation(db)
+        
+        assert passed == []
+        assert stats["candidates_total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_smoke_test_with_preflight_no_no_proxy_available(db_without_last_live_check):
+    """
+    Тест: smoke_test с preflight не должен получать no_proxy_available
+    при наличии HOT/WARM прокси.
+    """
+    results = await smoke_test(n=5, timeout=1.0, use_preflight=True)
+    
+    # Проверяем что no_proxy_available не был получен
+    no_proxy_count = results["fail_reasons"].get("no_proxy_available", 0)
+    assert no_proxy_count == 0, (
+        f"FAILED: no_proxy_available = {no_proxy_count}! "
+        "Preflight + degraded mode должны предоставить прокси"
+    )
+
+
+def test_print_report_contains_preflight_counters(capsys):
+    """
+    Тест: print_report содержит preflight counters когда preflight включён.
+    """
+    results = {
+        "total": 10,
+        "success": 3,
+        "failed": 7,
+        "ratio": 0.3,
+        "fail_reasons": {"timeout": 5, "connect_error": 2},
+        "latencies": [100, 200, 150],
+        "details": [],
+        "mode": "preflight",
+        "preflight_stats": {
+            "candidates_total": 50,
+            "candidates_checked": 50,
+            "candidates_passed": 20,
+            "candidates_failed": 30,
+            "fail_reasons": {"timeout": 25, "connect_error": 5},
+        },
+    }
+    
+    print_report(results)
+    captured = capsys.readouterr()
+    
+    # Проверяем что есть preflight статистика
+    assert "PREFLIGHT VALIDATION" in captured.out
+    assert "Candidates total: 50" in captured.out
+    assert "Candidates passed: 20" in captured.out
+    assert "Candidates failed: 30" in captured.out
+
+
+def test_print_report_contains_mode(capsys):
+    """
+    Тест: print_report содержит mode (fresh / degraded / preflight).
+    """
+    results = {
+        "total": 10,
+        "success": 3,
+        "failed": 7,
+        "ratio": 0.3,
+        "fail_reasons": {},
+        "latencies": [],
+        "details": [],
+        "mode": "preflight",
+    }
+    
+    print_report(results)
+    captured = capsys.readouterr()
+    
+    # Проверяем что mode указан
+    assert "Mode: preflight" in captured.out
