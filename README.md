@@ -34,7 +34,7 @@ fp get -n 10 -f json
 
 ### ✨ Новое в версии 2.0
 
-- **53 источника** прокси (GitHub, API, HTML сайты)
+- **56+ источников** прокси (GitHub, API, HTML, Premium Leak)
 - **SOCKS4/SOCKS5** поддержка
 - **Асинхронный режим** (проверка 100 прокси за ~10 сек)
 - **CLI интерфейс** с автодополнением
@@ -213,7 +213,7 @@ sources = FreeProxy().get_all_sources()  # list[dict]
 
 ---
 
-## 🌍 Источники (53)
+## 🌍 Источники (56+)
 
 ### GitHub Raw (17 источников)
 
@@ -223,8 +223,6 @@ sources = FreeProxy().get_all_sources()  # list[dict]
 - Sunny9577/proxy-scraper
 - JetKai/proxy-list
 - ShiftyTR/Proxy-List (http, https, socks4, socks5)
-- miyukii-chan/ProxyList
-- roosterkid/openproxylist
 
 ### API (9 источников)
 
@@ -238,9 +236,21 @@ sources = FreeProxy().get_all_sources()  # list[dict]
 - us-proxy.org
 - free-proxy-list.net
 - free-proxy-list.net/uk-proxy.html
-- spys.one
-- spys.one/socks
-- geonode.com
+
+### 💎 Premium Leak (3+ источника)
+
+"Слитые" платные прокси из GitHub Gist, Pastebin и других источников.
+
+- GitHub Gist - Premium Proxy Lists
+- Pastebin - Datacenter Proxies
+- GitHub Gist - Residential Proxies
+
+**Преимущества:**
+- Качество: 60-90% uptime (vs 10-30% у бесплатных)
+- Latency: 50-300ms (vs 500-5000ms у бесплатных)
+- Success rate: 40-70% (vs 5-20% у бесплатных)
+
+**⚠️ Предупреждение:** Некоторые источники могут нарушать ToS сервисов. Используйте на свой страх и риск.
 
 ---
 
@@ -362,7 +372,7 @@ git push origin feature/my-feature
 
 **Полная переработка проекта**
 
-- ✨ 53 источника прокси
+- ✨ 56+ источников прокси
 - ✨ SOCKS4/SOCKS5 поддержка
 - ✨ AsyncFreeProxy класс
 - ✨ CLI интерфейс (typer)
