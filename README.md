@@ -258,6 +258,9 @@ pytest -v --cov=fp
 
 # Конкретный тест
 pytest tests/test_proxy.py::TestProxyModel -v
+
+# Smoke тесты (E2E проверка реальных прокси)
+pytest tests/test_smoke.py -v
 ```
 
 ---
@@ -315,13 +318,29 @@ git checkout -b feature/my-feature
 pytest -v
 
 # Smoke тест (E2E проверка реальных прокси)
-python scripts/smoke_runner.py --n 3 --timeout 5
+python scripts/smoke_runner.py --n 10 --timeout 5
 
-# Быстрая коллекция прокси для тестов
+# Smoke тесты (pytest)
+pytest tests/test_smoke.py -v
+
+# Быстрая коллекция прокси для тестов (обновляет last_live_check)
 python quick_collect.py
 
 # Пересборка пулов из карантина
 python rebuild_pools.py
+
+# Проверка БД (last_live_check)
+python -c "
+import asyncio
+from fp.database import ProxyDatabase
+async def check():
+    async with ProxyDatabase() as db:
+        cursor = await db._conn.execute('SELECT COUNT(*) FROM proxies WHERE last_live_check IS NOT NULL')
+        print(f'last_live_check NOT NULL: {(await cursor.fetchone())[0]}')
+        stats = await db.get_stats()
+        print(f'HOT: {stats[\"hot_count\"]}, WARM: {stats.get(\"warm_count\", 0)}, TOTAL: {stats[\"total_proxies\"]}')
+asyncio.run(check())
+"
 
 # Commit
 git commit -m "feat: add my feature"
