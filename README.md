@@ -5,7 +5,6 @@
 [![Version](https://img.shields.io/pypi/v/free-proxy.svg)](https://pypi.org/project/free-proxy/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/free-proxy.svg)](https://pypi.org/project/free-proxy/)
 [![License](https://img.shields.io/pypi/l/free-proxy.svg)](https://github.com/motttik/free-proxy/blob/master/LICENSE)
-[![Downloads](https://pepy.tech/badge/free-proxy)](https://pepy.tech/project/free-proxy)
 
 [![CI/CD](https://github.com/motttik/free-proxy/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/motttik/free-proxy/actions/workflows/ci-cd.yml)
 
