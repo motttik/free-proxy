@@ -202,7 +202,7 @@ async def _get_fresh_proxy(db, use_quarantine: bool = False) -> dict | None:
             ORDER BY m.score DESC, p.last_live_check DESC
             LIMIT 20
         """)
-        
+
         rows = await cursor.fetchall()
         if rows:
             row = random.choice(rows)
@@ -211,7 +211,29 @@ async def _get_fresh_proxy(db, use_quarantine: bool = False) -> dict | None:
                 "source": row[4], "score": row[5], "latency_ms": row[6], "uptime": row[7],
                 "last_live_check": row[8], "fail_streak": row[9]
             }
-    
+
+    # FALLBACK: если нет fresh proxies, брать top score из HOT/WARM
+    # Это нужно для degraded mode когда last_live_check не проставлен
+    cursor = await db._conn.execute("""
+        SELECT p.ip, p.port, p.protocol, p.country, p.source,
+               m.score, m.latency_ms, m.uptime, p.last_live_check, p.fail_streak
+        FROM proxies p
+        JOIN metrics m ON p.id = m.proxy_id
+        WHERE p.pool IN ('hot', 'warm')
+          AND (p.fail_streak < 3)
+        ORDER BY m.score DESC
+        LIMIT 50
+    """)
+
+    rows = await cursor.fetchall()
+    if rows:
+        row = random.choice(rows)
+        return {
+            "ip": row[0], "port": row[1], "protocol": row[2], "country": row[3],
+            "source": row[4], "score": row[5], "latency_ms": row[6], "uptime": row[7],
+            "last_live_check": row[8], "fail_streak": row[9]
+        }
+
     return None
 
 
@@ -260,14 +282,15 @@ def print_report(results: dict) -> None:
         
         if results["fail_reasons"].get("no_proxy_available", 0) > 0:
             print("  ⚠️  Not enough proxies in HOT/WARM pools")
-            print("     → Recommendation: run 'fp op run-pipeline' to refresh")
-        
+            print("     → Recommendation: run 'python quick_collect.py' to refresh")
+            print("     → Or use fallback mode: smoke test will use top-score proxies")
+
         # Applied filters info
         print("\n=== APPLIED FILTERS ===")
-        print("  - HOT pool: last_live_check < 15 min")
-        print("  - WARM pool: last_live_check < 45 min")
+        print("  - HOT pool: last_live_check < 30 min (TTL: 30 min)")
+        print("  - WARM pool: last_live_check < 60 min (TTL: 60 min)")
         print("  - fail_streak < 3")
-        print("  - exclude recent fail (last 10 min)")
+        print("  - Fallback: use top-score if no fresh proxies")
     
     print("\n=== RESULT ===")
     if results["ratio"] >= 0.3:

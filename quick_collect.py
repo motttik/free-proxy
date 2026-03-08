@@ -53,6 +53,9 @@ async def collect_and_validate():
         # Быстрая "валидация" - просто добавляем с хорошим score
         print("\nAdding to database...")
         added = 0
+        import time
+        now = int(time.time())  # Текущее время для last_live_check
+        
         for p in unique[:500]:  # Максимум 500
             proxy_id = await db.add_proxy(p.ip, p.port, p.protocol, p.country, p.source)
             if proxy_id > 0:
@@ -67,10 +70,20 @@ async def collect_and_validate():
                 )
                 score = metrics.calculate_score()
                 await db.update_metrics(proxy_id, metrics, score)
-                
+
                 # Сразу в HOT или WARM
                 pool = ProxyPool.HOT if score >= 80 else ProxyPool.WARM
-                await db.update_pool(proxy_id, pool)
+                
+                # Проставляем last_live_check = now для всех добавленных прокси
+                await db._conn.execute("""
+                    UPDATE proxies 
+                    SET pool = ?, 
+                        last_live_check = ?,
+                        last_check = ?
+                    WHERE id = ?
+                """, (pool.value, now, now, proxy_id))
+                await db._conn.commit()
+                
                 added += 1
         
         print(f"Added {added} proxies")
