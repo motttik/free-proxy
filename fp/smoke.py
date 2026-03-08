@@ -20,9 +20,10 @@ import aiohttp
 
 PREFLIGHT_CONFIG = {
     "enabled": True,
-    "candidate_pool_size": 50,  # Сколько кандидатов брать для preflight
-    "timeout": 2.5,  # Короткий timeout для preflight
+    "candidate_pool_size": 30,  # Сколько кандидатов брать для preflight
+    "timeout": 3.0,  # Короткий timeout для preflight
     "test_url": "http://httpbin.org/ip",  # Легкий URL для preflight
+    "max_concurrent": 10,  # Ограничить параллелизм для скорости
 }
 
 ADAPTIVE_TIMEOUT_CONFIG = {
@@ -125,6 +126,7 @@ async def run_preflight_validation(
     candidate_count: int = 50,
     timeout: float = 2.5,
     test_url: str = "http://httpbin.org/ip",
+    max_concurrent: int = 10,
 ) -> tuple[list[dict], dict]:
     """
     Preflight валидация кандидатов
@@ -160,7 +162,10 @@ async def run_preflight_validation(
     if not rows:
         return [], stats
 
-    # Проверяем параллельно
+    # Semaphore для ограничения параллелизма
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    # Проверяем с ограничением параллелизма
     async def check_candidate(row) -> tuple[dict, bool, Optional[str]]:
         proxy_data = {
             "ip": row[0], "port": row[1], "protocol": row[2], "country": row[3],
@@ -168,7 +173,8 @@ async def run_preflight_validation(
             "last_live_check": row[8], "fail_streak": row[9]
         }
         proxy_url = f"{proxy_data['protocol']}://{proxy_data['ip']}:{proxy_data['port']}"
-        success, reason, _ = await preflight_check(proxy_url, test_url, timeout)
+        async with semaphore:
+            success, reason, _ = await preflight_check(proxy_url, test_url, timeout)
         return proxy_data, success, reason
 
     tasks = [check_candidate(row) for row in rows]
@@ -238,6 +244,7 @@ async def smoke_test(
                 candidate_count=PREFLIGHT_CONFIG["candidate_pool_size"],
                 timeout=PREFLIGHT_CONFIG["timeout"],
                 test_url=PREFLIGHT_CONFIG["test_url"],
+                max_concurrent=PREFLIGHT_CONFIG.get("max_concurrent", 10),
             )
             results["preflight_stats"] = preflight_stats
 
