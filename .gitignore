@@ -138,6 +138,11 @@ Thumbs.db
 .cache/
 .fp/
 tests/.pytest_cache/
+docs/
+venv/
+*.db
+proxies.json
+update_sources.py
 
 # Secrets
 .env.local

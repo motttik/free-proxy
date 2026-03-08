@@ -59,7 +59,7 @@ class FreeProxy:
     def __init__(
         self,
         country_id: list[str] | None = None,
-        timeout: float = 0.5,
+        timeout: float = 5.0,
         rand: bool = False,
         anonym: bool = False,
         elite: bool = False,
