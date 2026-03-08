@@ -172,3 +172,7 @@ async def collect_and_validate():
         print(f"WARM: {stats.get('warm_count', 0)}")
         print(f"QUARANTINE: {stats['quarantine_count']}")
         print(f"TOTAL: {stats['total_proxies']}")
+
+
+if __name__ == "__main__":
+    asyncio.run(collect_and_validate())

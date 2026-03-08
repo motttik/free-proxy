@@ -204,7 +204,7 @@ async def smoke_test(
     test_url: str = "https://httpbin.org/ip",
     timeout: float = 10.0,
     use_quarantine: bool = False,
-    use_preflight: bool = True,
+    use_preflight: bool = False,  # По умолчанию OFF (медленный для бесплатных прокси)
     adaptive_timeout: bool = True,
 ) -> dict:
     """
@@ -215,7 +215,7 @@ async def smoke_test(
         test_url: URL для проверки
         timeout: Базовый таймаут в секундах
         use_quarantine: Использовать ли quarantine прокси
-        use_preflight: Использовать ли preflight валидацию
+        use_preflight: Использовать ли preflight валидацию (default: False)
         adaptive_timeout: Использовать ли адаптивный timeout
 
     Returns:
@@ -497,7 +497,14 @@ def print_report(results: dict) -> None:
         print("  - HOT pool: last_live_check < 15 min (TTL: 15 min)")
         print("  - WARM pool: last_live_check < 45 min (TTL: 45 min)")
         print("  - fail_streak < 3")
-        print("  - Preflight: enabled (timeout 2.5s, httpbin.org/ip)")
+        
+        # Preflight status
+        if results.get("preflight_stats"):
+            ps = results["preflight_stats"]
+            print(f"  - Preflight: enabled ({ps['candidates_checked']} checked, {ps['candidates_passed']} passed)")
+        else:
+            print("  - Preflight: disabled (use --preflight to enable)")
+        
         print("  - Adaptive timeout: enabled (3s → 6s retry)")
         print("  - Fallback: use top-score if no fresh proxies (degraded mode)")
 
@@ -511,22 +518,26 @@ def print_report(results: dict) -> None:
 async def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="E2E Smoke Test v2.1")
+    parser = argparse.ArgumentParser(description="E2E Smoke Test v2.2")
     parser.add_argument("--n", type=int, default=10, help="Number of proxies to test")
     parser.add_argument("--url", type=str, default="https://httpbin.org/ip", help="Test URL")
     parser.add_argument("--timeout", type=float, default=10.0, help="Timeout in seconds")
     parser.add_argument("--use-quarantine", action="store_true", help="Use quarantine proxies")
-    parser.add_argument("--no-preflight", action="store_true", help="Disable preflight validation")
+    parser.add_argument("--preflight", action="store_true", help="Enable preflight validation (default: OFF)")
+    parser.add_argument("--no-preflight", action="store_true", help=argparse.SUPPRESS)  # Deprecated, для обратной совместимости
     parser.add_argument("--no-adaptive-timeout", action="store_true", help="Disable adaptive timeout")
 
     args = parser.parse_args()
+
+    # Preflight: --preflight включает (default: OFF)
+    use_preflight = args.preflight
 
     results = await smoke_test(
         n=args.n,
         test_url=args.url,
         timeout=args.timeout,
         use_quarantine=args.use_quarantine,
-        use_preflight=not args.no_preflight,
+        use_preflight=use_preflight,
         adaptive_timeout=not args.no_adaptive_timeout,
     )
 

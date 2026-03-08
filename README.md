@@ -328,14 +328,14 @@ git checkout -b feature/my-feature
 pytest -v
 
 # Smoke тест (E2E проверка реальных прокси)
-# Базовый: preflight + adaptive timeout включены по умолчанию
-python scripts/smoke_runner.py --n 10 --timeout 5
+# Базовый: preflight OFF (быстрее для бесплатных прокси)
+python scripts/smoke_runner.py --n 10 --timeout 8
 
-# Smoke тест без preflight (для отладки)
-python scripts/smoke_runner.py --n 10 --timeout 5 --no-preflight
+# Smoke тест с preflight (для быстрых/платных прокси)
+python scripts/smoke_runner.py --n 10 --timeout 5 --preflight
 
 # Smoke тест без adaptive timeout
-python scripts/smoke_runner.py --n 10 --timeout 5 --no-adaptive-timeout
+python scripts/smoke_runner.py --n 10 --timeout 8 --no-adaptive-timeout
 
 # Smoke тесты (pytest)
 pytest tests/test_smoke.py -v
